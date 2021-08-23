@@ -22,6 +22,12 @@ class WavefrontControl:
         self.grid = grid
         self.resolution = self.wavelength/self.diameter
         
+        # DM parameters
+        self.n_actuators = n_actuators
+        self.probe = probe
+        self.regularlization = regularization
+
+
         # AO loop parameters 
         self.control_frequency = control_frequency
         self.dt = 1/self.control_frequency
@@ -103,8 +109,8 @@ class WavefrontControl:
             self.wf = self.propagator.forward(self.wf)
 
             # save strehl, phase screen, science image, new DM command, WFS image
-            self.strehl = get_strehl_from _focal(self.wf.intensity, self.reference_image.intensity)
-            print(f'Strehl at iter {i}: {self.strehl)')
+            self.strehl = get_strehl_from_focal(self.wf.intensity, self.reference_image.intensity)
+            print(f'Strehl at iter {i}: {self.strehl}')
 
 
     def _sense_wavefront_modulated_pyramid(self):
@@ -125,14 +131,14 @@ class WavefrontControl:
             binned_image = np.zeros((int(wfs_image.shape[0]/n_bins), int(wfs_image.shape[1]/n_bins)))
             for m in np.arange(n_bins-1, wfs_image.shape[0]-n_bins, n_bins):
                 for n in np.arange(n_bins-1, wfs_image.shape[1]-n_bins, n_bins):
-                    binned_image[int((m+1)/n_bins)-1, int((n+1)/n_bins)-1] = 
+                    binned_image[int((m+1)/n_bins)-1, int((n+1)/n_bins)-1] = \
                                  np.sum(wfs_image[m-int((n_bins-1)/2):m+int((n_bins-1)/2),
                                                   n-int((n_bins-1)/2):n+int((n_bins-1)/2)])
             return binned_image.flatten()/binned_image.sum()
         
         binned_image = (self.camera.read_out().shaped, self.n_bins)
         
-        pyramid_grid = make_pupil_grid(self.pixels*2, self.diameter
+        pyramid_grid = make_pupil_grid(self.pixels*2, self.diameter)
          
         py_1 = circular_aperture(self.diameter/2, [-1*self.diameter/4,    self.diameter/4])(pyramid_grid)
         py_2 = circular_aperture(self.diameter/2, [   self.diameter/4,    self.diameter/4])(pyramid_grid)
@@ -158,7 +164,7 @@ class WavefrontControl:
  
         if wfs == 'PyWFS':
             try:
-                pyramid_wfs = PyramidWavefrontSensorOptics(self.pupil_grid, self.wavelength_0=wavelength)
+                pyramid_wfs = PyramidWavefrontSensorOptics(self.pupil_grid, wavelength_0=self.wavelength)
                 wavefront_sensor = ModulatedPyramidWavefrontSensorOptics(pyramid_wfs, 
                                                                               modulation['radius'],
                                                                               modulation['steps'])
@@ -192,9 +198,34 @@ class WavefrontControl:
         deformable_mirror = DeformableMirror(influence_functions)
         
         self.deformable_mirror = deformable_mirror
-    
+        self._build_command_matrix()
+
     def _build_command_matrix(self):
         
-        self.command_matrix = None
-        return
+        response = []
+        modes = self.deformable_mirror.num_actuators 
+
+        for mode in range(modes):
+            slope = 0
+
+            for sign in (1, -1):
+                amplitude = np.zeros((modes,))
+                amplitude[mode] = sign*self.probe*self.wavelength
+                deformable_mirror.flatten()
+                deformable_mirror.actuators = amplitude 
+
+                wf_deformable_mirror = self.deformable_mirror.forward(self.wf)
+                wf_wavefront_sensor = self.wavefront_Sensor.forward(wf_deformable_mirror)
+                
+                for mod in range(self.modulation['steps']):
+                    self.camera.integrate(wf_wavefront_sensor[mod], 1)
+                
+                response_slopes = self._calculate_wavefront_sensor_slopes()
+                slope += sign * (response_slopes/2*self.probe*self.wavelength)
+            
+            response.append(slope.ravel())
+        
+        modal_response = ModeBasis(response)
+        
+        self.command_matrix = inverse_tikhonov(modal_response, rcond=self.regularization)
 
