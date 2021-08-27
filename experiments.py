@@ -3,29 +3,88 @@
 # to hardware or simulation
 # ideally easy flag between 
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 from hcipy import *
 
 
 class WavefrontControl:
     """ Right now this is just going to be a dump of a working WFC loop. We'll
-    do something smarter/better/faster/stronger later... """
+    do something smarter/better/faster/stronger later... 
+    
+    Parameters
+    ----------
+    wavelength : float
+        Science wavelength in meters.
+    diameter : float
+        Primary mirror diamter in meters.
+    mirror_shape : str
+        Shape of the mirror. 'circular' or 'segmented' (not yet implemented.)
+    n_sample : int
+        Pixels per resolution element for the focal grid images.  
+    n_airy : int
+        Number of airy rings we want when we sample the PSF.
+    grid : int
+        Pixels across telescope aperture. 
+    wfs_type : str
+        Wavefront sensor type. 'PyWFS' or ... (not yet implemented.)
+    modulation_steps : int
+        Steps the modulated pyramid takes. (None for non PyWFS.)
+    modulation_radius : float
+        Radius of modulation for the pyramid. (None for non PyWFS.) 
+    pixels : int
+        Number of pixels across the wfs. (Needs to be a factor of grid.)
+    wfs_camera : str, HCIPy Camera object
+        Either 'noiseless' to spin up a NoiselssDetector or pass an HCIPy
+        camera.
+    n_actuators : int
+        Number of DM actuators. 
+    probe : float
+        Factor to multiple by wavelength to get probe amplitude. 
+    regularization : float
+        Strength of the regularlization for the reconstruction matrix. 
+    control_frequency : float
+        Control frequency for the AO loop in Hz. 
+    leak : float
+        Leak for a leaky integrator. (1 is no leak.)
+    gain : float
+        Integrator gain. 
+    wfc_control_method : str
+        Wavefront control method. 'integrator', 'eof', or 'lmmse' (not yet
+        implemented.)
+    """
 
-    def __init__(wavelength, diameter, n_sample, n_airy, grid, control_frequency, 
-                 leak, gain, wfc_control_method):
-        
+
+    def __init__(self, wavelength=2500e-9, diameter=1, mirror_shape='circular', 
+                 n_sample=6, n_airy=12, grid=120, wfs_type='PyWFS', 
+                 modulation_steps=12, modulation_radius=5, pixels=20,
+                 wfs_camera='noiseless', n_actuators=10, probe=.2, 
+                 regularization=1e-3, control_frequency=1000, leak=1, 
+                 gain=0.5, wfc_control_method='integrator'):
+        """ Init function to set up the wavefront control loop. """
+
         # Image, sampling, and science parameters
         self.wavelength = wavelength
         self.diameter = diameter
+        self.mirror_shape = mirror_shape
 
         self.n_sample = n_sample
         self.n_airy = n_airy
         self.grid = grid
         self.resolution = self.wavelength/self.diameter
         
+        # WFS parameters
+        self.wfs_type = wfs_type
+        self.modulation = {'steps': modulation_steps, 'radius': modulation_radius}
+        self.pixels = pixels
+        self.camera_type = wfs_camera
+        
         # DM parameters
         self.n_actuators = n_actuators
-        self.probe = probe
-        self.regularlization = regularization
+        self.actuator_spacing = self.diameter/self.n_actuators
+        self.probe = probe 
+        self.regularization = regularization
 
 
         # AO loop parameters 
@@ -34,7 +93,7 @@ class WavefrontControl:
         self.leak = leak
         self.gain = gain
         if wfc_control_method == 'integrator':
-            self._update_control = _update_control_integrator
+            self._update_control = self._update_control_integrator
         else:
             raise NotImplementedError('Only WFC method available at present is integrator.')
 
@@ -45,18 +104,23 @@ class WavefrontControl:
         self.propagator = FraunhoferPropagator(self.pupil_grid, self.focal_grid)
 
     
-    def build_optics(self):
+    def initialize_system(self):
+        """ Function to build the optics, atmosphere, and start the wavefront 
+        we'll use in a WFC experiment."""
         
         self._build_primary_mirror()
+        
+        self.wf = Wavefront(self.primary_mirror, wavelength=self.wavelength)
+        self.reference_image = self.propagator.forward(self.wf)
+        
         self._build_wavefront_sensor()
         self._build_deformable_mirror()
     
-    def initialize_atmosphere(self):
-        """ Initialize the atmosphere, but realistically it needs to evolve with
-        each DM iter, so this can't just spit something out. """
+        self.initialize_atmosphere()
+
+    def initialize_atmosphere(self, model='single'):
+        """ Initialize the atmospheric turbulence."""
        
-        # FIXME: do we want an option for a simpler model tooooo?
-        # Probably 
         def build_multilayer_model():
             #based off of https://www2.keck.hawaii.edu/optics/kpao/files/KAON/KAON303.pdf
             heights = np.array([0.0, 2.1, 4.1, 6.5, 9.0, 12.0, 14.8])*1000
@@ -69,10 +133,16 @@ class WavefrontControl:
                 layers.append(InfiniteAtmosphericLayer(input_grid, cn, L0, v, h, 2))
             return layers 
 
-        layer = MultiLayerAtmosphere(build_multilayer_model(self.pupil_grid))
+        if model == 'single':
+            layer = InfiniteAtmosphericLayer(self.pupil_grid, 1.5e-13, 80, 10)
+        elif model == 'multilayer':
+            layer = MultiLayerAtmosphere(build_multilayer_model(self.pupil_grid))
+        else:
+            raise NotImplementedError(f"{model} is not currently an implemented turbulence mode.")
+        
         self.atmospheric_layer = layer
 
-    def run_wavefront_control(self, n_steps, initialize=True):
+    def run_wavefront_control(self, n_steps=500, initialize=True):
         """ Workhorse func for the wavefront control. """
     
         # Can I easily output a field to a numpy array/FITS
@@ -80,21 +150,14 @@ class WavefrontControl:
         
         if initialize:
             
-            # start with a clean wf
-            self.wf = Wavefront(self.primary_mirror, wavelength=self.wavelength)
-            self.reference_image = self.propagator.forward(self.wf)
-            
-            # build optics and initialize atmosphere
-            # Note that we have to make the wf first in case we need to make a WFS reference image
-            self.build_optics()
-            self.initialize_atmosphere()
+            self.initialize_system()
 
+        self.strehl_record = [] 
         for i in range(n_steps):
-            
             # update atmosphere layer            
-            self.layer.t = i*self.dt
-            phase= layer.phase_for(self.wavelength) #this is in radians, unwrapped
-            self.wf = self.layer.forward((self.wf))
+            self.atmospheric_layer.t = i*self.dt
+            #phase= self.atmospheric_layer.phase_for(self.wavelength) #this is in radians, unwrapped
+            self.wf = self.atmospheric_layer.forward(self.wf)
             
             # send it through the DM
             self.wf = self.deformable_mirror.forward(self.wf)
@@ -106,23 +169,94 @@ class WavefrontControl:
             self._update_control()
             
             # move to science image
-            self.wf = self.propagator.forward(self.wf)
+            self.science_wf = self.propagator.forward(self.wf)
 
             # save strehl, phase screen, science image, new DM command, WFS image
-            self.strehl = get_strehl_from_focal(self.wf.intensity, self.reference_image.intensity)
+            self.strehl = get_strehl_from_focal(self.science_wf.intensity, self.reference_image.intensity)
+            self.strehl_record.append(self.strehl)
             print(f'Strehl at iter {i}: {self.strehl}')
+        plt.plot(np.arange(0, n_steps), self.strehl_record)
+        plt.savefig('strehl.png')
+        plt.clf()
+        imshow_field(self.science_wf.intensity)
+        plt.savefig('final_science.png')
+    
+    def _build_command_matrix(self):
+        """ Function to build a command matrix for the DM. """
+        response = []
+        modes = self.deformable_mirror.num_actuators 
 
+        for mode in range(modes):
+            slope = 0
 
-    def _sense_wavefront_modulated_pyramid(self):
-        
-        self.sensed_wf = self.wavefront_sensor(self.wf)
-        for step in range(self.modulation['steps']):
-            self.camera.integrate(self.sense_wf[step], self.dt/self.modulation['steps'])
-        self._calculate_wavefront_sensor_slopes()
+            for sign in (1, -1):
+                amplitude = np.zeros((modes,))
+                amplitude[mode] = sign*self.probe*self.wavelength
+                self.deformable_mirror.flatten()
+                self.deformable_mirror.actuators = amplitude 
 
-
-    def _calculate_wavefront_sensor_slopes(self):
+                wf_deformable_mirror = self.deformable_mirror.forward(self.wf)
+                wf_wavefront_sensor = self.wavefront_sensor.forward(wf_deformable_mirror)
+                
+                for mod in range(self.modulation['steps']):
+                    self.camera.integrate(wf_wavefront_sensor[mod], 1)
+                
+                response_slopes = self._calculate_wavefront_sensor_slopes(subtract_reference=False)
+                slope += sign * (response_slopes/2*self.probe*self.wavelength)
             
+            response.append(slope.ravel())
+        
+        modal_response = ModeBasis(response)
+        
+        self.command_matrix = inverse_tikhonov(modal_response, rcond=self.regularization)
+
+    def _build_deformable_mirror(self):
+        """ Function to build a defomrable mirror."""
+
+        influence_functions = make_gaussian_influence_functions(self.pupil_grid, self.n_actuators, self.actuator_spacing)
+        deformable_mirror = DeformableMirror(influence_functions)
+        
+        self.deformable_mirror = deformable_mirror
+        self._build_command_matrix()
+
+    def _build_primary_mirror(self):
+        """ Function to build a primary mirror."""
+        
+        if self.mirror_shape == 'circular':
+            primary_mirror = evaluate_supersampled(circular_aperture(self.diameter), self.pupil_grid, self.n_sample)
+        
+        else:
+            raise NotImplementedError("Nothing for that mirror type yet sorry.")
+ 
+        self.primary_mirror = primary_mirror
+
+    def _build_wavefront_sensor(self):
+        """ Function to build and initialize a wavefront sensor."""
+        
+        self.camera = self.camera_type if self.camera_type != 'noiseless'  else NoiselessDetector(self.pupil_grid)
+ 
+        if self.wfs_type == 'PyWFS':
+            try:
+                pyramid_wfs = PyramidWavefrontSensorOptics(self.pupil_grid, wavelength_0=self.wavelength)
+                self.wavefront_sensor = ModulatedPyramidWavefrontSensorOptics(pyramid_wfs, 
+                                                                              self.modulation['radius'],
+                                                                              self.modulation['steps'])
+                       
+                self.n_bins = int(self.grid/self.pixels)
+
+                for step in range(self.modulation['steps']):
+                    self.camera.integrate(self.wavefront_sensor(self.wf)[step], 1)
+                
+                self.wfs_reference = self._calculate_wavefront_sensor_slopes(subtract_reference=False)
+                self._sense_wavefront = self._sense_wavefront_modulated_pyramid
+
+            except (TypeError, KeyError) as e:
+                TypeError("'modulation' must be a dictionary with 'raidus' and 'steps' defined to use PyWFS mode.")
+        
+        else:
+            raise NotImplementedError("Nothing for that WFS type yet sorry.")
+        
+    def _calculate_wavefront_sensor_slopes(self, subtract_reference=True):
         """ Calculate slopes from WFS. """
         
         def bin_image(wfs_image, n_bins):
@@ -136,96 +270,39 @@ class WavefrontControl:
                                                   n-int((n_bins-1)/2):n+int((n_bins-1)/2)])
             return binned_image.flatten()/binned_image.sum()
         
-        binned_image = (self.camera.read_out().shaped, self.n_bins)
+        binned_image = bin_image(self.camera.read_out().shaped, self.n_bins)
         
         pyramid_grid = make_pupil_grid(self.pixels*2, self.diameter)
          
-        py_1 = circular_aperture(self.diameter/2, [-1*self.diameter/4,    self.diameter/4])(pyramid_grid)
-        py_2 = circular_aperture(self.diameter/2, [   self.diameter/4,    self.diameter/4])(pyramid_grid)
-        py_3 = circular_aperture(self.diameter/2, [-1*self.diameter/4, -1*self.diameter/4])(pyramid_grid)
-        py_4 = circular_aperture(self.diameter/2, [   self.diameter/4, -1*self.diameter/4])(pyramid_grid)
+        py_1 = np.array(circular_aperture(self.diameter/2, [-1*self.diameter/4,    self.diameter/4])(pyramid_grid))
+        py_2 = np.array(circular_aperture(self.diameter/2, [   self.diameter/4,    self.diameter/4])(pyramid_grid))
+        py_3 = np.array(circular_aperture(self.diameter/2, [-1*self.diameter/4, -1*self.diameter/4])(pyramid_grid))
+        py_4 = np.array(circular_aperture(self.diameter/2, [   self.diameter/4, -1*self.diameter/4])(pyramid_grid))
         
-        normalization = (binned_image[py_1>0]+image[py_2>0]+image[py_3>0]+image[py_4>0])/(4*np.sum(py1[py_1>0]))
+        normalization = (binned_image[py_1>0]+binned_image[py_2>0]+binned_image[py_3>0]+binned_image[py_4>0])/(4*np.sum(py_1[py_1>0]))
 
-        slopes_x = (binned_image[py_1>0] - image[py_2>0] + image[py_3>0] - image[py_4>0])
-        slopes_y = (binned_image[py_1>0] + image[py_2>0] - image[py_3>0] - image[py_4>0])
+        slopes_x = (binned_image[py_1>0] - binned_image[py_2>0] + binned_image[py_3>0] - binned_image[py_4>0])
+        slopes_y = (binned_image[py_1>0] + binned_image[py_2>0] - binned_image[py_3>0] - binned_image[py_4>0])
         
-        self.slopes = (np.array([slopes_x, slopes_y]).flatten() - self.wfs_reference).ravel()
+        if subtract_reference:
+            self.slopes = (np.array([slopes_x, slopes_y]).flatten() - self.wfs_reference).ravel()
+        else:
+            self.slopes = (np.array([slopes_x, slopes_y]).flatten()).ravel()
         return self.slopes
 
+    def _sense_wavefront_modulated_pyramid(self):
+        """ Function to use the wavefront sensor to take a wavefront image. """ 
+        self.sensed_wf = self.wavefront_sensor(self.wf)
+        for step in range(self.modulation['steps']):
+            self.camera.integrate(self.sensed_wf[step], self.dt/self.modulation['steps'])
+        self._calculate_wavefront_sensor_slopes()
+
     def _update_control_integrator(self):
-        
         """ Basic integrator control method. """
-        self.deformable_mirror.actuators = self.leak*deformable_mirror.actuators - self.gain*self.command_matrix.dot(self.slopes)
+        #self.deformable_mirror.actuators = 
+        self.leak*self.deformable_mirror.actuators - self.gain*self.command_matrix.reshape((100, 632)).dot(self.slopes.reshape((632, 1)))
 
-    def _build_wavefront_sensor(self, modulation=None, camera=None, wfs='PyWFS'):
-        
-        self.camera = camera if camera is not None else NoiselessDetector(self.pupil_grid)
- 
-        if wfs == 'PyWFS':
-            try:
-                pyramid_wfs = PyramidWavefrontSensorOptics(self.pupil_grid, wavelength_0=self.wavelength)
-                wavefront_sensor = ModulatedPyramidWavefrontSensorOptics(pyramid_wfs, 
-                                                                              modulation['radius'],
-                                                                              modulation['steps'])
-                
-                self.n_bins = int(self.grid_size/self.pixels)
 
-                for step in range(modulation['steps']):
-                    self.camera.integrate(wavefront_sensor(self.wf)[step], 1)
-                
-                self.wfs_reference = self._calculate_wavefront_sensor_slopes()
-                self._sense_wavefront = self._sense_wavefront_modulated_pyramid
-
-            except (TypeError, KeyError) as e:
-                TypeError("'modulation' must be a dictionary with 'raidus' and 'steps' defined to use PyWFS mode.")
-        
-        else:
-            raise NotImplementedError("Nothing for that WFS type yet sorry.")
-        
-    def _build_primary_mirror(self, mirror_shape='circular', size=1, n_samples=6):
-        if mirror_shape == 'circular':
-            primary_mirror = evaluate_supersampled(circular_aperture(size), self.pupil_grid, n_samples)
-        
-        else:
-            raise NotImplementedError("Nothing for that mirror type yet sorry.")
- 
-        self.primary_mirror = primary_mirror
-
-    def _build_deformable_mirror(self, n_actuators=32, actuator_spacing=1/32):
-
-        influence_functions = make_gaussian_influence_functions(self.pupil_grid, n_actuators, actuator_spacing)
-        deformable_mirror = DeformableMirror(influence_functions)
-        
-        self.deformable_mirror = deformable_mirror
-        self._build_command_matrix()
-
-    def _build_command_matrix(self):
-        
-        response = []
-        modes = self.deformable_mirror.num_actuators 
-
-        for mode in range(modes):
-            slope = 0
-
-            for sign in (1, -1):
-                amplitude = np.zeros((modes,))
-                amplitude[mode] = sign*self.probe*self.wavelength
-                deformable_mirror.flatten()
-                deformable_mirror.actuators = amplitude 
-
-                wf_deformable_mirror = self.deformable_mirror.forward(self.wf)
-                wf_wavefront_sensor = self.wavefront_Sensor.forward(wf_deformable_mirror)
-                
-                for mod in range(self.modulation['steps']):
-                    self.camera.integrate(wf_wavefront_sensor[mod], 1)
-                
-                response_slopes = self._calculate_wavefront_sensor_slopes()
-                slope += sign * (response_slopes/2*self.probe*self.wavelength)
-            
-            response.append(slope.ravel())
-        
-        modal_response = ModeBasis(response)
-        
-        self.command_matrix = inverse_tikhonov(modal_response, rcond=self.regularization)
-
+if __name__ == "__main__":
+    wfc = WavefrontControl()
+    wfc.run_wavefront_control()
