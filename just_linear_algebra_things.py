@@ -55,8 +55,9 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
         heights = np.array([500, 1000, 2000, 4000, 8000, 16000])
         velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
         outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
-        cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*1e-12
-        
+        integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
+        cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
+        print(f'CN squared: {integrated_cn_squared}')
         layers = []
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
             layers.append(InfiniteAtmosphericLayer(input_grid, cn, L0, v, h, 2))
@@ -72,7 +73,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
     return layer
 
 
-def build_sample_data(i, j, k, n_iters, data_type='sin'):
+def build_sample_data(i, j, k, n_iters, data_type='sin', save='AO_7_layer.fits'):
 
     past = np.ones((i, j, k))
     future = np.ones((i, j, n_iters))
@@ -89,8 +90,8 @@ def build_sample_data(i, j, k, n_iters, data_type='sin'):
         
     if data_type == 'AO':
         pupil_grid = make_pupil_grid(i, 8)
-        wavelength = 1.63e-06
-        #wavelength = 658e-9
+        #wavelength = 1.63e-06
+        wavelength = 658e-9
         layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
         
         # running at kHz timescale
@@ -98,7 +99,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin'):
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
                 phase = layer.phase_for(wavelength).shaped
-                iters[1][:, :, index] = phase*(wavelength*1e9)/(2*np.pi)
+                iters[1][:, :, index] = phase*(wavelength)/(2*np.pi)
     
     if data_type == '2D sin':
         for time_index in range(n_iters):
@@ -199,10 +200,9 @@ for max_index in range(n+1, n_iters-dt):
 t_end = time.time()
 print(f'Predictor loop completed after {t_end - t_filter} seconds.')
 
-plt.plot(np.array(rms_future)*1e-3, label='uncorrected', color='gray')
-
-plt.plot(np.array(rms_int)*1e-3, label='quasi integrator', color='green')
-plt.plot(np.array(rms_pred)*1e-3, label='prediction', color='cyan')
+plt.plot(np.array(rms_future)*1e6, label='uncorrected', color='gray')
+plt.plot(np.array(rms_int)*1e6, label='quasi integrator', color='green')
+plt.plot(np.array(rms_pred)*1e6, label='prediction', color='cyan')
 plt.legend()
 plt.xlabel('Iterations (1kHz)')
 plt.ylabel('RMS wavefront error [um]') 
@@ -212,7 +212,7 @@ plt.savefig('predictive_test_7_layer.png')
 plt.show()
 plt.clf()
 
-print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
+print(f'Uncorrected: {np.median(rms_future)*1e9}, quasi-integrator: {np.median(rms_int)*1e9}, predictor: {np.median(rms_pred)*1e9} nm.')
 
 #plt.hist(rms_int, bins=100, label='quasi integrator', alpha=.3, color='gray')
 #plt.hist(rms_pred, bins=100, label='prediction', alpha=.3, color='green')
