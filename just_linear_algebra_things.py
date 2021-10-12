@@ -55,7 +55,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
         heights = np.array([500, 1000, 2000, 4000, 8000, 16000])
         velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
         outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
-        cn_squared = np.array([Cn_squared_from_fried_parameter(0.20) for i in range(7)])
+        cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*1e-12
         
         layers = []
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
@@ -90,12 +90,13 @@ def build_sample_data(i, j, k, n_iters, data_type='sin'):
     if data_type == 'AO':
         pupil_grid = make_pupil_grid(i, 8)
         wavelength = 1.63e-06
+        #wavelength = 658e-9
         layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
         
         # running at kHz timescale
         for iters in [(k, past), (n_iters, future)]:
             for index in range(iters[0]):
-                layer.t = 0.01*(index+1)
+                layer.t = 0.001*(index+1)
                 phase = layer.phase_for(wavelength).shaped
                 iters[1][:, :, index] = phase*(wavelength*1e9)/(2*np.pi)
     
