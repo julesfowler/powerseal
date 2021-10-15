@@ -79,7 +79,31 @@ def convert_phase_to_wfe(phase, wavelength=658e-9, unit_conversion=1e9):
     
     return wfe 
 
-def build_sample_data(i, j, k, n_iters, data_type='sin', save=None):
+
+def apply_binning(data, resolution, modes):
+    # taken almost exactly from Maaike's notebook
+
+    if resolution==modes:
+        binned_data = data
+
+    else:
+        binned_data = np.zeros((modes, modes))
+        binning_factor = np.int(resolution/modes)
+        for i_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
+            for j_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
+                binned_col = np.sum( 
+                             data[i_index-int((binning_factor-1)/2):i_index+int((binning_factor-1)/2),
+                                  j_index-int((binning_factor-1)/2):j_index+int((binning_factor-1)/2)]
+                             )
+
+                binned_data[int((i_index+1)/binning_factor-1), int((j_index+1)/binning_factor-1)] = binned_col
+
+    return binned_data
+
+
+def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=None):
+    
+    resolution = i if resolution is None else resolution
 
     past = np.ones((i, j, k))
     future = np.ones((i, j, n_iters))
@@ -95,17 +119,17 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None):
                 past[:, :, index] += 1.005
         
     if data_type == 'AO':
-        pupil_grid = make_pupil_grid(i, 8)
+        pupil_grid = make_pupil_grid(resolution, 8)
         #wavelength = 1.63e-06
         wavelength = 658e-9
-        layer = build_atmosphere(wavelength, pupil_grid, model='single')
+        layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
         
         # running at kHz timescale
         for iters in [(k, past), (n_iters, future)]:
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
                 phase = layer.phase_for(wavelength).shaped
-                iters[1][:, :, index] = phase
+                iters[1][:, :, index] = apply_binning(phase, resolution, i)
     
     if data_type == '2D sin':
         for time_index in range(n_iters):
@@ -140,11 +164,12 @@ def pseudo_inverse_least_squares(D, P, alpha=1):
 t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
-i, j = 160, 160
+resolution = 160
+i, j = 20, 20
 k = 60000
-n_iters = 1000
+n_iters = 60000
 
-past, future =  build_sample_data(i, j, k, n_iters, data_type='AO')
+past, future =  build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO')
 t_data = time.time()
 print(f'Data simulated after {t_data - t_start} seconds.') 
 # first flatten her out so it's only over M actuators/subapertures
@@ -220,7 +245,7 @@ plt.xlabel('Iterations (1kHz)')
 plt.ylabel('RMS wavefront error [um]') 
 plt.yscale('log')
 #plt.ylim(1e-3, 10)
-plt.savefig('predictive_test_1_layer_8m_160x.png')
+plt.savefig('predictive_test_7_layer_8m_160x.png')
 #plt.show()
 plt.clf()
 
