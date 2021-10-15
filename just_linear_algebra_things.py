@@ -57,15 +57,15 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
         outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
         integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
         cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
-        print(f'CN squared: {integrated_cn_squared}')
+        
         layers = []
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
             layers.append(InfiniteAtmosphericLayer(input_grid, cn, L0, v, h, 2))
         return layers 
 
     if model == 'single':
-        cn_squared = Cn_squared_from_fried_parameter(0.12)
-        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 50, 5)
+        cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
+        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, 7)
     
     elif model == 'multilayer':
         layer = MultiLayerAtmosphere(build_multilayer_model(pupil_grid))
@@ -73,7 +73,13 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
     return layer
 
 
-def build_sample_data(i, j, k, n_iters, data_type='sin', save='AO_7_layer.fits'):
+def convert_phase_to_wfe(phase, wavelength=658e-9, unit_conversion=1e9):
+    
+    wfe = phase*(wavelength*unit_conversion)/(2*np.pi)
+    
+    return wfe 
+
+def build_sample_data(i, j, k, n_iters, data_type='sin', save=None):
 
     past = np.ones((i, j, k))
     future = np.ones((i, j, n_iters))
@@ -92,14 +98,14 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save='AO_7_layer.fits')
         pupil_grid = make_pupil_grid(i, 8)
         #wavelength = 1.63e-06
         wavelength = 658e-9
-        layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
+        layer = build_atmosphere(wavelength, pupil_grid, model='single')
         
         # running at kHz timescale
         for iters in [(k, past), (n_iters, future)]:
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
                 phase = layer.phase_for(wavelength).shaped
-                iters[1][:, :, index] = phase*(wavelength)/(2*np.pi)
+                iters[1][:, :, index] = phase
     
     if data_type == '2D sin':
         for time_index in range(n_iters):
@@ -113,7 +119,10 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save='AO_7_layer.fits')
             for time_index in range(iters[0]):
                 # this doesn't need to be a loop...
                 iters[1][:, :, time_index] = np.array([random.random()*12-6, random.random*12-6])
-        
+    
+    if save is not None:
+        hdu_list = fits.HDUList([fits.PrimaryHDU(past), fits.ImageHDU(future)])
+        hdu_list.writeto(save)
     return past, future
 
 
@@ -131,9 +140,9 @@ def pseudo_inverse_least_squares(D, P, alpha=1):
 t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
-i, j = 20, 20
+i, j = 160, 160
 k = 60000
-n_iters = 60000
+n_iters = 1000
 
 past, future =  build_sample_data(i, j, k, n_iters, data_type='AO')
 t_data = time.time()
@@ -185,9 +194,9 @@ for max_index in range(n+1, n_iters-dt):
     #print(flat_wfs_prediction.shape, dm_commands.shape) 
     flat_wfs_prediction[:, max_index+dt] = dm_commands
     #print(f'At iter {max_index}: {np.median(dm_commands.reshape((10,10)))} vs {np.median(flat_wfs_future[:, max_index+dt])}')
-    rms_future.append(np.sqrt(np.mean(flat_wfs_future[:, max_index+dt]**2)))
-    rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt]-dm_commands)**2)))
-    rms_int.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt]-flat_wfs_future[:, max_index])**2)))
+    rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
+    rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+    rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
 
 #plt.plot(future, label='future')
 #plt.plot(prediction, label='prediction', linestyle='--')
@@ -200,19 +209,23 @@ for max_index in range(n+1, n_iters-dt):
 t_end = time.time()
 print(f'Predictor loop completed after {t_end - t_filter} seconds.')
 
-plt.plot(np.array(rms_future)*1e6, label='uncorrected', color='gray')
-plt.plot(np.array(rms_int)*1e6, label='quasi integrator', color='green')
-plt.plot(np.array(rms_pred)*1e6, label='prediction', color='cyan')
+plt.plot(np.array(rms_future)*1e-3, label='uncorrected', color='gray')
+#plt.plot(np.array(rms_future), label='uncorrected', color='gray')
+plt.plot(np.array(rms_int)*1e-3, label='quasi integrator', color='green')
+#plt.plot(np.array(rms_int), label='quasi integrator', color='green')
+plt.plot(np.array(rms_pred)*1e-3, label='prediction', color='cyan')
+#plt.plot(np.array(rms_pred), label='prediction', color='cyan')
 plt.legend()
 plt.xlabel('Iterations (1kHz)')
 plt.ylabel('RMS wavefront error [um]') 
 plt.yscale('log')
-plt.ylim(1e-3, 10)
-plt.savefig('predictive_test_7_layer.png')
-plt.show()
+#plt.ylim(1e-3, 10)
+plt.savefig('predictive_test_1_layer_8m_160x.png')
+#plt.show()
 plt.clf()
 
-print(f'Uncorrected: {np.median(rms_future)*1e9}, quasi-integrator: {np.median(rms_int)*1e9}, predictor: {np.median(rms_pred)*1e9} nm.')
+#print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
+print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
 
 #plt.hist(rms_int, bins=100, label='quasi integrator', alpha=.3, color='gray')
 #plt.hist(rms_pred, bins=100, label='prediction', alpha=.3, color='green')
