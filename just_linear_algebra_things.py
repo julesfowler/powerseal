@@ -57,10 +57,10 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
         outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
         integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
         cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
-        
         layers = []
+        
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
-            layers.append(InfiniteAtmosphericLayer(input_grid, cn, L0, v, h, 2))
+            layers.append(InfiniteAtmosphericLayer(input_grid, cn, L0, v, h))
         return layers 
 
     if model == 'single':
@@ -73,7 +73,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
     return layer
 
 
-def convert_phase_to_wfe(phase, wavelength=658e-9, unit_conversion=1e9):
+def convert_phase_to_wfe(phase, wavelength=1.63e-6, unit_conversion=1e9):
     
     wfe = phase*(wavelength*unit_conversion)/(2*np.pi)
     
@@ -120,7 +120,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
         
     if data_type == 'AO':
         pupil_grid = make_pupil_grid(resolution, 8)
-        #wavelength = 1.63e-06
+        science_wavelength = 1.63e-06
         wavelength = 658e-9
         layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
         
@@ -128,7 +128,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
         for iters in [(k, past), (n_iters, future)]:
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
-                phase = layer.phase_for(wavelength).shaped
+                phase = layer.phase_for(science_wavelength).shaped
                 iters[1][:, :, index] = apply_binning(phase, resolution, i)
     
     if data_type == '2D sin':
@@ -245,7 +245,7 @@ plt.xlabel('Iterations (1kHz)')
 plt.ylabel('RMS wavefront error [um]') 
 plt.yscale('log')
 #plt.ylim(1e-3, 10)
-plt.savefig('predictive_test_7_layer_8m_160x.png')
+plt.savefig('predictive_test_7_layer_8m_160x_science_wv.png')
 #plt.show()
 plt.clf()
 
