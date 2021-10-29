@@ -91,7 +91,7 @@ def apply_binning(data, resolution, modes):
         binning_factor = np.int(resolution/modes)
         for i_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
             for j_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
-                binned_col = np.sum( 
+                binned_col = np.mean( 
                              data[i_index-int((binning_factor-1)/2):i_index+int((binning_factor-1)/2),
                                   j_index-int((binning_factor-1)/2):j_index+int((binning_factor-1)/2)]
                              )
@@ -100,6 +100,22 @@ def apply_binning(data, resolution, modes):
 
     return binned_data
 
+def read_data(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualWF.npy',
+              dm_path='/Users/julesfowler/Downloads/dmc.npy'):
+
+    dm_commands = np.load(dm_path)
+    dm_commands[dm_commands > 10] = 10
+    dm_commands[dm_commands < -10] = -10
+    
+    wf_residuals = np.load(wf_path)
+    
+    integrator_phase = wf_residuals*0.6
+    open_loop_phase = (-1*dm_commands + wf_residuals)*0.6
+
+    past = open_loop_phase[:k, 5:15, 5:15]
+    future = open_loop_phase[-1*n_iters:, 5:15, 5:15]
+
+    return past, future
 
 def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=None):
     
@@ -165,11 +181,14 @@ t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
 resolution = 160
-i, j = 20, 20
+i, j = 10, 10
 k = 60000
 n_iters = 60000
 
-past, future =  build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO')
+#past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO')
+past, future = read_data(k, n_iters)
+print(np.mean(past), np.mean(future))
+print(np.sqrt(np.mean(past**2)), np.sqrt(np.mean(future**2)))
 t_data = time.time()
 print(f'Data simulated after {t_data - t_start} seconds.') 
 # first flatten her out so it's only over M actuators/subapertures
@@ -178,7 +197,7 @@ m = i*j
 flat_wfs = past.reshape((m, k))
 
 # now decide how long the history vector is and how long training matrix is
-n = 12 # MUST BE GREATER THAN DT YOU DINGDONG
+n = 5 # MUST BE GREATER THAN DT YOU DINGDONG
 dt = 2
 l = k-n-dt # max k-n
 # now create m*x length history vector and m*n x l length training matrix
@@ -219,9 +238,12 @@ for max_index in range(n+1, n_iters-dt):
     #print(flat_wfs_prediction.shape, dm_commands.shape) 
     flat_wfs_prediction[:, max_index+dt] = dm_commands
     #print(f'At iter {max_index}: {np.median(dm_commands.reshape((10,10)))} vs {np.median(flat_wfs_future[:, max_index+dt])}')
-    rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
-    rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
-    rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
+    #rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
+    rms_future.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt])**2)))
+    #rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+    rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+    #rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
+    rms_int.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
 
 #plt.plot(future, label='future')
 #plt.plot(prediction, label='prediction', linestyle='--')
@@ -234,23 +256,23 @@ for max_index in range(n+1, n_iters-dt):
 t_end = time.time()
 print(f'Predictor loop completed after {t_end - t_filter} seconds.')
 
-plt.plot(np.array(rms_future)*1e-3, label='uncorrected', color='gray')
+plt.plot(np.array(rms_future), label='uncorrected', color='gray')
 #plt.plot(np.array(rms_future), label='uncorrected', color='gray')
-plt.plot(np.array(rms_int)*1e-3, label='quasi integrator', color='green')
+plt.plot(np.array(rms_int), label='quasi integrator', color='green')
 #plt.plot(np.array(rms_int), label='quasi integrator', color='green')
-plt.plot(np.array(rms_pred)*1e-3, label='prediction', color='cyan')
+plt.plot(np.array(rms_pred), label='prediction', color='cyan')
 #plt.plot(np.array(rms_pred), label='prediction', color='cyan')
 plt.legend()
 plt.xlabel('Iterations (1kHz)')
 plt.ylabel('RMS wavefront error [um]') 
 plt.yscale('log')
 #plt.ylim(1e-3, 10)
-plt.savefig('predictive_test_7_layer_8m_160x_science_wv.png')
-#plt.show()
+plt.savefig('predictive_test_becky_compare.png')
+plt.show()
 plt.clf()
 
 #print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
-print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
+print(f'Uncorrected: {np.median(rms_future)*1e3}, quasi-integrator: {np.median(rms_int)*1e3}, predictor: {np.median(rms_pred)*1e3} nm.')
 
 #plt.hist(rms_int, bins=100, label='quasi integrator', alpha=.3, color='gray')
 #plt.hist(rms_pred, bins=100, label='prediction', alpha=.3, color='green')
