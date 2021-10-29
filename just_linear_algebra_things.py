@@ -24,6 +24,27 @@ from hcipy import *
 
 ## -- FUCTIONS
 
+
+def misc_indexing_thoughts(wfs_state, mask, wfs_corrected):
+
+    # given some array of data and some mask
+    full_index = np.arange(len(wfs_state.flatten()))
+
+    wfs_flat = wfs_state[mask]
+    index_flat = full_index[mask.flatten()]
+    
+    # pass around these two, and index flat will
+    # let you reassign later with
+    wfs_reshape  = np.zeros_like(wfs_state)
+    np.put(wfs_reshape, index_flat, wfs_corrected)
+    
+    # now this holdes the reshaped corrected values whee
+    return wfs_reshape
+    
+
+
+
+
 def calculate_DM_command(F, h, CM=1, gain=1):
     
     #dm_commands = gain * CM.dot(np.matmul(F, h))
