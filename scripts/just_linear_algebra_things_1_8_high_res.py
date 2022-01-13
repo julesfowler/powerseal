@@ -199,7 +199,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
                 phase = layer.phase_for(science_wavelength).shaped
-                iters[1][:, :, index] = apply_binning(phase, resolution, resolution)
+                iters[1][:, :, index] = apply_binning(phase, resolution, i)
     
     if data_type == '2D sin':
         for time_index in range(n_iters):
@@ -235,7 +235,7 @@ t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
 resolution = 160
-i, j = 20, 20
+i, j = 160, 160
 k = 60000
 n_iters = 30000
 
