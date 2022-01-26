@@ -46,7 +46,7 @@ def build_F(D, P):
 
     return F
 
-def build_atmosphere(wavelength, pupil_grid, model='single'):
+def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
 
     def build_multilayer_model(input_grid):
         #based off of https://www2.keck.hawaii.edu/optics/kpao/files/KAON/KAON303.pdf
@@ -67,11 +67,31 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
         return layers 
 
     if model == 'single':
+        print('Building single layer.')
         cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
         layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, 7)
     
     elif model == 'multilayer':
         layer = MultiLayerAtmosphere(build_multilayer_model(pupil_grid))
+    
+    if remove_modes:
+        print('Building HE fourier modes.')
+        # Make high energy fourier modes
+        high_energy_modes = make_fourier_basis(pupil_grid, pupil_grid, sort_by_energy=True)
+        # Scoop only high energy ones
+        high_energy_modes.transformation_matrix = high_energy_modes.transformation_matrix[:, 21*21::]
+        
+        print('Building LE zernike modes.')
+        # Make low energy zernike modes 
+        low_energy_modes = make_zernike_basis(3, 8, pupil_grid)
+        
+        # Make the franken-layer
+        print('Making Franken-layer.')
+        controlled_modes = low_energy_modes
+        controlled_modes.transformation_matrix=np.concatenate((low_energy_modes.transformation_matrix,
+            high_energy_modes.transformation_matrix), axis=1)
+
+        layer = ModalAdaptiveOpticsLayer(layer, controlled_modes, lag=0)
 
     return layer
 
@@ -172,7 +192,7 @@ def read_data(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualWF.npy',
 
 
 def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=None):
-    
+    print('Building sample data.') 
     resolution = i if resolution is None else resolution
 
     past = np.ones((i, j, k))
@@ -192,12 +212,14 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
         pupil_grid = make_pupil_grid(resolution, 8)
         science_wavelength = 1.63e-06
         wavelength = 658e-9
+        print('Making AO layer.')
         layer = build_atmosphere(wavelength, pupil_grid, model='single')
         
         # running at kHz timescale
         for iters in [(k, past), (n_iters, future)]:
             for index in range(iters[0]):
                 layer.t = 0.001*(index+1)
+                print(index)
                 phase = layer.phase_for(science_wavelength).shaped
                 iters[1][:, :, index] = apply_binning(phase, resolution, i)
     
@@ -234,8 +256,8 @@ def pseudo_inverse_least_squares(D, P, alpha=1):
 t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
-resolution = 160
-i, j = 160, 160
+resolution = 50
+i, j = 50, 50
 k = 60000
 n_iters = 30000
 
