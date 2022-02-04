@@ -2,3 +2,4 @@ plots/
 *.png
 __pycache__/*
 *.fits
+*.txt

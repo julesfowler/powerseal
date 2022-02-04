@@ -1,26 +1,113 @@
-# Step 1 convert to Fourier modes 
-# Step 2 collect each fourier mode in time
-# Step 3 apply a DFT and see what happens!?
+## -- IMPORTS
+
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy import signal
+
+from astropy.io import fits
+from hcipy import *
 
 
-A = np.zeros((19,19,2*19*19))
+## -- FUNCTIONS 
+
+def apply_binning(data, resolution, modes):
+
+    # taken almost exactly from Maaike's notebook
+
+    if resolution==modes:
+        binned_data = data
+
+    else:
+        binned_data = np.zeros((modes, modes))
+        binning_factor = int(resolution/modes)
+        for i_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
+            for j_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
+                binned_col = np.mean(
+                             data[i_index-int((binning_factor-1)/2):i_index+int((binning_factor-1)/2),
+                                  j_index-int((binning_factor-1)/2):j_index+int((binning_factor-1)/2)]
+                             )
+
+                binned_data[int((i_index+1)/binning_factor-1), int((j_index+1)/binning_factor-1)] = binned_col
+
+    return binned_data
+
+def fourier_decomp(test_img, A, m, n, rcond=1e-6):
+
+    pinv = np.linalg.pinv(A, rcond=rcond)
+    b = test_img.flatten()
+
+    x = np.matmul(pinv, b)
+    approx = np.matmul(A, x)
+    if np.mean(np.abs(b - approx)) > 1e-5:
+        print('STOP IT WENT WRONG')
+        print(np.mean(np.abs(b - approx)))
+    return x, approx, b
+
+def velocity_to_mode(k, l, vx, vy, d=8):
+    return -(k*vx + l*vy)/d
+
+def build_complex_basis(i0, j0, m0, n0):
+    A = np.zeros((m0, n0,i0*j0), dtype=complex)
+    c = 0
+    for i in range(i0):
+        for j in range(j0):
+            for m in range(m0):
+                for n in range(n0):
+                    A[m, n, c] = complex(np.cos(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0), np.sin(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0))
+            c+=1
+    A_reshape = A.reshape(m0*n0, i0*j0)
+
+    return A_reshape
 
 
-c = 0
-for i in range(19):
-    for j in range(19):
-        for m in range(19):
-            for n in range(19):
-                A[m, n, c] = np.sin((i+1)*m + (j+1)*n*2*np.pi/20)
-                A[m, n, c+361] = np.cos((i+1)*m + (j+1)*n*2*np.pi/20)
-        c+=1
+def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A):
+    modes = np.zeros((i0*j0, t_frames), dtype=complex)
+    for i in range(t_frames):
+        img = apply_binning(data[:,:, i], resolution, i0)
+        coeffs, approx, mean_sub_img = fourier_decomp(img, A, m0, n0)
+        modes[:, i] = coeffs
+        
+        return modes
+    
+def build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_name):
+    
+    window = signal.get_window(window='hamming', Nx=4000)
+    f, Pxx_den = signal.welch(po_modes_long[i, :], fs=fs, window=window)
+    sf, sP = zip(*sorted(zip(f, Pxx_den)))
+    plt.semilogy(sf, sP, label=f'Welch mode {i}', color='cyan')
+    for index, velocity in enumerate(velocities):
+        layer = veloicty_to_mode(mode_k, mode_l, velocity*np.cos(np.deg2rad(thetas[index])), velocity*np.sin(np.deg2rad(thetas[index])))
+        plt.axvline(layer, color='gray', linestyle='--')
+    plt.legend()
+    plt.xlim()
+    plt.ylim()
+    plt.savefig(f'{plot_name}.png')
 
 
-A_reshape = A.reshape(361, 2*19*19)
+## -- Set initial conditions for sizing
+# i0 : # x modes
+# j0 : # y modes
+# m0 : # x pixels (post binning)
+# n0 : # y pixels
+i0, j0, m0, n0 = 48, 48, 48, 48
 
+## -- Read in data and create Fourier decomposition
+data = fits.getdata('something.fits')
 
-pinv = np.linalg.pinv(A_reshape, rcond=1e-6)
-b = test_img.flatten()
+# -- Set conditions about the data we're reading in
+t_frames = 60000
+resolution = 96
 
-x = np.matmul(pinv, b)
-approx = np.matmul(A_reshape, x)
+# -- Build complex basis
+A = build_complex_basis(i0, j0, m0, n0)
+modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A)
+
+# Specify what mode and wind layers we injected
+mode_sum = 300
+mode_k, mode_j = 8, 16
+vs = ...
+thetas = ...
+plot_name = ...
+
+build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_name)
+
