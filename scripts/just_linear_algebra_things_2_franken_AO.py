@@ -55,11 +55,15 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
         #outer_scales = np.array([20,20,20,20,20,20,20])
         #cn_squared = np.array([0.369, 0.219, 0.127, 0.101, 0.046, 0.111, 0.027])* 1e-12
         
-        heights = np.array([500, 1000, 2000, 4000, 8000, 16000])
-        velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
-        outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
+        heights = np.array([500, 1000])
+        velocities = np.array([(7,0), (2,0)])
+        outer_scales = np.array([2, 20])
+        #heights = np.array([500, 1000, 2000, 4000, 8000, 16000])
+        #velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
+        #outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
         integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
-        cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
+        cn_squared = np.array([0.6, 0.4])*integrated_cn_squared
+        #cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
         layers = []
         
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
@@ -69,7 +73,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
     if model == 'single':
         print('Building single layer.')
         cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
-        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, (7,0))
+        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, 7)
     
     elif model == 'multilayer':
         layer = MultiLayerAtmosphere(build_multilayer_model(pupil_grid))
@@ -256,12 +260,12 @@ def pseudo_inverse_least_squares(D, P, alpha=1):
 t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
-resolution = 96
-i, j = 96, 96
+resolution = 64
+i, j = 64, 64
 k = 60000
 n_iters = 30000
 
-past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence_1_8_franken_AO_res=96.fits')
+past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence_2_8_franken_AO.fits')
 #test_data = fits.open('turbulence.fits')
 #past, future = test_data[0].data, test_data[1].data
 #past, past_index, future, integrator_residuals, future_index = read_data(k, n_iters)

@@ -55,11 +55,21 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
         #outer_scales = np.array([20,20,20,20,20,20,20])
         #cn_squared = np.array([0.369, 0.219, 0.127, 0.101, 0.046, 0.111, 0.027])* 1e-12
         
-        heights = np.array([500, 1000, 2000, 4000, 8000, 16000])
-        velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
-        outer_scales = np.array([2, 20, 20, 20, 30, 40, 40])
-        integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
-        cn_squared = np.array([0.672, 0.051, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
+        heights = np.array([500, 1000, 2000, 4000, 8000]) #, 16000])
+        velocities = np.array([(-20.737481888487043, -9.232921797820662),
+                               (3.1013009279657586, 1.0678635466194741),
+                               (-15.16485459686718, 6.751828275058277),
+                               (2.9449999999999994, -5.100889628290344),
+                               (4.790053532873421, 19.21185538026473)])
+        #velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
+        outer_scales = np.array([2, 20, 20, 20, 30]) #, 40, 40])
+        #integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
+        #cn_squared = np.array([0.672, 0.051]) #, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
+        r0 = [.389, .447, .454, .388, .436]
+        cn_squared = np.zeros((5))
+        for index, val in enumerate(r0):
+            cn_squared[index] = Cn_squared_from_fried_parameter(val, wavelength=wavelength)
+
         layers = []
         
         for h, v, cn, L0 in zip(heights, velocities, cn_squared,outer_scales):
@@ -69,9 +79,9 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
     if model == 'single':
         print('Building single layer.')
         cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
-        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, (7,0))
+        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, 7)
     
-    elif model == 'multilayer':
+    elif model == 'multilayer' and not remove_modes:
         layer = MultiLayerAtmosphere(build_multilayer_model(pupil_grid))
     
     if remove_modes:
@@ -90,8 +100,15 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
         controlled_modes = low_energy_modes
         controlled_modes.transformation_matrix=np.concatenate((low_energy_modes.transformation_matrix,
             high_energy_modes.transformation_matrix), axis=1)
-
-        layer = ModalAdaptiveOpticsLayer(layer, controlled_modes, lag=0)
+        
+        if model=='multilayer':
+            layers = build_multilayer_model(pupil_grid)
+            for index, wind_layer in enumerate(layers):
+                layers[index] = ModalAdaptiveOpticsLayer(wind_layer, controlled_modes, lag=0)
+            layer = MultiLayerAtmosphere(layers)
+        
+        else:
+            layer = ModalAdaptiveOpticsLayer(layer, controlled_modes, lag=0)
 
     return layer
 
@@ -213,7 +230,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
         science_wavelength = 1.63e-06
         wavelength = 658e-9
         print('Making AO layer.')
-        layer = build_atmosphere(wavelength, pupil_grid, model='single')
+        layer = build_atmosphere(wavelength, pupil_grid, model='multilayer')
         
         # running at kHz timescale
         for iters in [(k, past), (n_iters, future)]:
@@ -261,7 +278,7 @@ i, j = 96, 96
 k = 60000
 n_iters = 30000
 
-past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence_1_8_franken_AO_res=96.fits')
+past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence_poyneer_8_franken_AOres=96.fits')
 #test_data = fits.open('turbulence.fits')
 #past, future = test_data[0].data, test_data[1].data
 #past, past_index, future, integrator_residuals, future_index = read_data(k, n_iters)
