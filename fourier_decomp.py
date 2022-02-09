@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import signal
 
-from astropy.io import fits
+from astropy.io import ascii, fits
 from hcipy import *
 
 
@@ -63,20 +63,22 @@ def build_complex_basis(i0, j0, m0, n0):
 def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A):
     modes = np.zeros((i0*j0, t_frames), dtype=complex)
     for i in range(t_frames):
+        print(i)
         img = apply_binning(data[:,:, i], resolution, i0)
         coeffs, approx, mean_sub_img = fourier_decomp(img, A, m0, n0)
         modes[:, i] = coeffs
         
-        return modes
+    return modes
     
-def build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_name):
+def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name, fs=1e3):
     
     window = signal.get_window(window='hamming', Nx=4000)
-    f, Pxx_den = signal.welch(po_modes_long[i, :], fs=fs, window=window)
+    f, Pxx_den = signal.welch(modes[mode_sum, :], fs=fs, window=window)
     sf, sP = zip(*sorted(zip(f, Pxx_den)))
-    plt.semilogy(sf, sP, label=f'Welch mode {i}', color='cyan')
+    ascii.write(dict({'frequency': sf, 'signal': np.array(sP)}), f'{name}.csv', overwrite=True)
+    plt.semilogy(sf, sP, label=f'Welch mode {mode_k},{mode_j}', color='cyan')
     for index, velocity in enumerate(velocities):
-        layer = veloicty_to_mode(mode_k, mode_l, velocity*np.cos(np.deg2rad(thetas[index])), velocity*np.sin(np.deg2rad(thetas[index])))
+        layer = velocity_to_mode(mode_k, mode_j, velocity*np.cos(np.deg2rad(thetas[index])), velocity*np.sin(np.deg2rad(thetas[index])))
         plt.axvline(layer, color='gray', linestyle='--')
     plt.legend()
     plt.xlim()
@@ -89,14 +91,14 @@ def build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_na
 # j0 : # y modes
 # m0 : # x pixels (post binning)
 # n0 : # y pixels
-i0, j0, m0, n0 = 48, 48, 48, 48
+i0, j0, m0, n0 = 21, 21, 21, 21
 
 ## -- Read in data and create Fourier decomposition
-data = fits.getdata('something.fits')
+data = fits.getdata('data/poyneer_franken.fits')
 
 # -- Set conditions about the data we're reading in
 t_frames = 60000
-resolution = 96
+resolution = 64
 
 # -- Build complex basis
 A = build_complex_basis(i0, j0, m0, n0)
@@ -105,9 +107,9 @@ modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A)
 # Specify what mode and wind layers we injected
 mode_sum = 300
 mode_k, mode_j = 8, 16
-vs = ...
-thetas = ...
-plot_name = ...
+vs = [22.7, 3.28, 16.6, 5.89, 19.8]
+thetas = [246, 71, 294, 150, 14]
+plot_name = 'test'
 
-build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_name)
+build_periodogram(modes, mode_sum, mode_k, mode_j, vs, thetas, plot_name)
 
