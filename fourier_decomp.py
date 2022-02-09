@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import signal
 
-from astropy.io import fits
+from astropy.io import ascii, fits
 from hcipy import *
 
 
@@ -74,6 +74,7 @@ def build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_na
     window = signal.get_window(window='hamming', Nx=4000)
     f, Pxx_den = signal.welch(po_modes_long[i, :], fs=fs, window=window)
     sf, sP = zip(*sorted(zip(f, Pxx_den)))
+    ascii.write(dict({'frequency': np.array(sf), 'signal': np.array(sP)}), 'poyneer_psd.csv', overwrite=True)
     plt.semilogy(sf, sP, label=f'Welch mode {i}', color='cyan')
     for index, velocity in enumerate(velocities):
         layer = veloicty_to_mode(mode_k, mode_l, velocity*np.cos(np.deg2rad(thetas[index])), velocity*np.sin(np.deg2rad(thetas[index])))
@@ -92,11 +93,11 @@ def build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_na
 i0, j0, m0, n0 = 48, 48, 48, 48
 
 ## -- Read in data and create Fourier decomposition
-data = fits.getdata('something.fits')
+data = fits.getdata('/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=160.fits')
 
 # -- Set conditions about the data we're reading in
 t_frames = 60000
-resolution = 96
+resolution = 160
 
 # -- Build complex basis
 A = build_complex_basis(i0, j0, m0, n0)
@@ -105,9 +106,9 @@ modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A)
 # Specify what mode and wind layers we injected
 mode_sum = 300
 mode_k, mode_j = 8, 16
-vs = ...
-thetas = ...
-plot_name = ...
+vs = [22.7, 3.28, 16.6, 5.89, 19.8]
+thetas = [246, 71, 294, 150, 14]
+plot_name = 'poyneer_psd_res=160'
 
 build_periodogram_plot(mode_sum, mode_k, mode_j, velocities, thetas, plot_name)
 
