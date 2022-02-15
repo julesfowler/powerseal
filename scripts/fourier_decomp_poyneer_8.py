@@ -67,8 +67,8 @@ def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save):
         img = apply_binning(data[:,:, i], resolution, i0)
         coeffs, approx, mean_sub_img = fourier_decomp(img, A, m0, n0)
         modes[:, i] = coeffs
-	hdu_list = fits.HDUList([fits.PrimaryHDU(modes)])
-	hdu_list.writeto(save, overwrite=True)
+    hdu_list = fits.HDUList([fits.PrimaryHDU(modes)])
+    hdu_list.writeto(save, overwrite=True)
         
     return modes
     
@@ -93,18 +93,18 @@ def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name,
 # j0 : # y modes
 # m0 : # x pixels (post binning)
 # n0 : # y pixels
-i0, j0, m0, n0 = 21, 21, 21, 21
+i0, j0, m0, n0 = 48, 48, 48, 48
 
 ## -- Read in data and create Fourier decomposition
-data = fits.getdata('/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=160.fits')
+data = fits.getdata('/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=144.fits')
 
 # -- Set conditions about the data we're reading in
 t_frames = 60000
-resolution = 160
+resolution = 144
 
 # -- Build complex basis
 A = build_complex_basis(i0, j0, m0, n0)
-modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save='modes=48_frames=60000_poyneer_franken.fits')
+modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save='/data/users/jumfowle/outputs/modes=48_frames=60000_poyneer_franken.fits')
 # Specify what mode and wind layers we injected
 mode_sum = 300
 mode_k, mode_j = 8, 16

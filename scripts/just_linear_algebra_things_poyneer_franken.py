@@ -273,12 +273,12 @@ def pseudo_inverse_least_squares(D, P, alpha=1):
 t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
-resolution = 96
-i, j = 96, 96
+resolution = 144
+i, j = 144, 144
 k = 60000
 n_iters = 30000
 
-past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence_poyneer_8_franken_AOres=96.fits')
+past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=144.fits')
 #test_data = fits.open('turbulence.fits')
 #past, future = test_data[0].data, test_data[1].data
 #past, past_index, future, integrator_residuals, future_index = read_data(k, n_iters)
