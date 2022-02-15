@@ -9,7 +9,6 @@ from hcipy import *
 
 
 ## -- FUNCTIONS 
-
 def apply_binning(data, resolution, modes):
 
     # taken almost exactly from Maaike's notebook
@@ -19,24 +18,48 @@ def apply_binning(data, resolution, modes):
 
     else:
         binned_data = np.zeros((modes, modes))
+
         binning_factor = int(resolution/modes)
-        for i_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
-            for j_index in np.arange(binning_factor-1, resolution-binning_factor, binning_factor):
+        for i_index in np.arange(binning_factor, resolution+1, binning_factor):
+            for j_index in np.arange(binning_factor, resolution+1, binning_factor):
+                binned_col = np.mean(
+                             data[i_index-binning_factor:i_index,
+                                  j_index-binning_factor:j_index]
+                             )
+                binned_data[int((i_index)/binning_factor)-1, int((j_index)/binning_factor)-1] = binned_col
+
+    return binned_data
+
+def backup_apply_binning(data, resolution, modes):
+
+    # taken almost exactly from Maaike's notebook
+
+    if resolution==modes:
+        binned_data = data
+
+    else:
+        binned_data = np.zeros((modes, modes))
+        
+        binning_factor = int(resolution/modes)
+        print(binning_factor)
+        print(resolution-binning_factor)
+        print(resolution, modes)
+        for i_index in np.arange(binning_factor-1, resolution-binning_factor-1, binning_factor):
+            for j_index in np.arange(binning_factor-1, resolution-binning_factor-1, binning_factor):
                 binned_col = np.mean(
                              data[i_index-int((binning_factor-1)/2):i_index+int((binning_factor-1)/2),
                                   j_index-int((binning_factor-1)/2):j_index+int((binning_factor-1)/2)]
                              )
-
+                print(i_index, j_index)
+                print(int((i_index+1)/binning_factor-1), int((j_index+1)/binning_factor-1))
                 binned_data[int((i_index+1)/binning_factor-1), int((j_index+1)/binning_factor-1)] = binned_col
 
     return binned_data
 
-def fourier_decomp(test_img, A, m, n, rcond=1e-6):
+def fourier_decomp(test_img, A, A_i, m, n):
 
-    pinv = np.linalg.pinv(A, rcond=rcond)
     b = test_img.flatten()
-
-    x = np.matmul(pinv, b)
+    x = np.matmul(A_i, b)
     approx = np.matmul(A, x)
     if np.mean(np.abs(b - approx)) > 1e-5:
         print('STOP IT WENT WRONG')
@@ -60,12 +83,15 @@ def build_complex_basis(i0, j0, m0, n0):
     return A_reshape
 
 
-def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A):
+def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, rcond=1e-6):
+    
     modes = np.zeros((i0*j0, t_frames), dtype=complex)
+    pinv = np.linalg.pinv(A, rcond=rcond)
+    
     for i in range(t_frames):
         print(i)
         img = apply_binning(data[:,:, i], resolution, i0)
-        coeffs, approx, mean_sub_img = fourier_decomp(img, A, m0, n0)
+        coeffs, approx, mean_sub_img = fourier_decomp(img, A, pinv, m0, n0)
         modes[:, i] = coeffs
         
     return modes
@@ -91,17 +117,21 @@ def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name,
 # j0 : # y modes
 # m0 : # x pixels (post binning)
 # n0 : # y pixels
-i0, j0, m0, n0 = 21, 21, 21, 21
+i0, j0, m0, n0 = 32, 32, 32, 32
 
 ## -- Read in data and create Fourier decomposition
-data = fits.getdata('data/poyneer_franken.fits')
+data_file = 'data/poyneer_franken.fits'
+print(f'Reading data from {data_file}')
+data = fits.getdata(data_file)
 
 # -- Set conditions about the data we're reading in
 t_frames = 60000
 resolution = 64
 
 # -- Build complex basis
+print('Building complex basis.')
 A = build_complex_basis(i0, j0, m0, n0)
+print('Decomposing images')
 modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A)
 
 # Specify what mode and wind layers we injected
@@ -110,6 +140,6 @@ mode_k, mode_j = 8, 16
 vs = [22.7, 3.28, 16.6, 5.89, 19.8]
 thetas = [246, 71, 294, 150, 14]
 plot_name = 'test'
-
+print('Writing out an example.')
 build_periodogram(modes, mode_sum, mode_k, mode_j, vs, thetas, plot_name)
 
