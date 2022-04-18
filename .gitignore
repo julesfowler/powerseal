@@ -3,3 +3,4 @@ plots/
 __pycache__/*
 *.fits
 *.txt
+data/

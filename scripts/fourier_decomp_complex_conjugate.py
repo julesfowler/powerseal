@@ -70,20 +70,21 @@ def velocity_to_mode(k, l, vx, vy, d=8):
     return -(k*vx + l*vy)/d
 
 def build_complex_basis(i0, j0, m0, n0):
-    A = np.zeros((m0, n0,i0*j0), dtype=complex)
+    A = np.zeros((m0, n0, int(i0*j0/2)+i0), dtype=complex)
     c = 0
-    for i in range(i0):
-        for j in range(j0):
+    for i in range(int(-1*i0/2)+1, int(i0/2)+1):
+        for j in range(int(j0/2)+1):
             for m in range(m0):
                 for n in range(n0):
+                    print(c, i, j)
                     A[m, n, c] = complex(np.cos(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0), np.sin(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0))
             c+=1
-    A_reshape = A.reshape(m0*n0, i0*j0)
+    A_reshape = A.reshape(m0*n0, int(i0*j0/2)+i0)
 
     return A_reshape
 
 
-def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, rcond=1e-6):
+def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save, rcond=1e-6):
     
     modes = np.zeros((i0*j0, t_frames), dtype=complex)
     pinv = np.linalg.pinv(A, rcond=rcond)
@@ -93,12 +94,12 @@ def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, rcond=1e-6):
         img = apply_binning(data[:,:, i], resolution, i0)
         coeffs, approx, mean_sub_img = fourier_decomp(img, A, pinv, m0, n0)
         modes[:, i] = coeffs
-	hdu_list = fits.HDUList([fits.PrimaryHDU(modes)])
-	hdu_list.writeto(save, overwrite=True)
+    hdu_list = fits.HDUList([fits.PrimaryHDU(np.imag(modes)), fits.ImageHDU(np.real(modes))])
+    hdu_list.writeto(save, overwrite=True)
         
     return modes
     
-def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name, fs=1e3):
+def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name, fs=2e3):
     
     window = signal.get_window(window='hamming', Nx=4000)
     f, Pxx_den = signal.welch(modes[mode_sum, :], fs=fs, window=window)
@@ -119,10 +120,11 @@ def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name,
 # j0 : # y modes
 # m0 : # x pixels (post binning)
 # n0 : # y pixels
-i0, j0, m0, n0 = 32, 32, 32, 32
+i0, j0, m0, n0 = 48, 48, 48, 48
 
 ## -- Read in data and create Fourier decomposition
-data = fits.getdata('/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=160.fits')
+
+data_file = '../data/turbulence_poyneer_8_franken_AOres=144.fits'
 print(f'Reading data from {data_file}')
 data = fits.getdata(data_file)
 
@@ -133,7 +135,7 @@ resolution = 144
 # -- Build complex basis
 print('Building complex basis.')
 A = build_complex_basis(i0, j0, m0, n0)
-modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save='modes=48_frames=60000_poyneer_franken.fits')
+modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save='modes=48_frames=60000_poyneer_2khz_complex_conjugate.fits')
 print('Decomposing images')
 
 # Specify what mode and wind layers we injected

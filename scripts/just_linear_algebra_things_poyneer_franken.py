@@ -46,7 +46,7 @@ def build_F(D, P):
 
     return F
 
-def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
+def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True, high_order=48):
 
     def build_multilayer_model(input_grid):
         #based off of https://www2.keck.hawaii.edu/optics/kpao/files/KAON/KAON303.pdf
@@ -89,7 +89,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
         # Make high energy fourier modes
         high_energy_modes = make_fourier_basis(pupil_grid, pupil_grid, sort_by_energy=True)
         # Scoop only high energy ones
-        high_energy_modes.transformation_matrix = high_energy_modes.transformation_matrix[:, 21*21::]
+        high_energy_modes.transformation_matrix = high_energy_modes.transformation_matrix[:, high_order*high_order::]
         
         print('Building LE zernike modes.')
         # Make low energy zernike modes 

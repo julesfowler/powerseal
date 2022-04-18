@@ -70,13 +70,14 @@ def velocity_to_mode(k, l, vx, vy, d=8):
     return -(k*vx + l*vy)/d
 
 def build_complex_basis(i0, j0, m0, n0):
+
     A = np.zeros((m0, n0,i0*j0), dtype=complex)
     c = 0
-    for i in range(i0):
-        for j in range(j0):
+    for i in range(int(-1*i0/2+1), int(i0/2+1)):
+        for j in range(int(-1*j0/2+1), int(j0/2+1)):
             for m in range(m0):
                 for n in range(n0):
-                    A[m, n, c] = complex(np.cos(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0), np.sin(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0))
+                    A[m, n, c] = complex(np.cos((i*m + j*n)*2*np.pi/m0), np.sin((i*m + j*n)*2*np.pi/m0))
             c+=1
     A_reshape = A.reshape(m0*n0, i0*j0)
 
