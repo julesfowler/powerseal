@@ -70,28 +70,34 @@ def velocity_to_mode(k, l, vx, vy, d=8):
     return -(k*vx + l*vy)/d
 
 def build_complex_basis(i0, j0, m0, n0):
-    A = np.zeros((m0, n0, int(i0*j0/2)+i0), dtype=complex)
+    #A = np.zeros((m0, n0,int(i0*j0/2)+i0), dtype=complex)
+    A = np.zeros((m0, n0,i0*j0), dtype=complex)
     c = 0
-    for i in range(int(-1*i0/2)+1, int(i0/2)+1):
-        for j in range(int(j0/2)+1):
+    for i in range(int(-1*i0/2+1), int(i0/2+1)):
+        for j in range(-22, int(j0/2+1)):
+        #for j in range(int(-1*j0/2+1), int(j0/2+1)):
             for m in range(m0):
                 for n in range(n0):
-                    print(c, i, j)
-                    A[m, n, c] = complex(np.cos(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0), np.sin(((m0-i+1)*m + (n0-j+1)*n)*2*np.pi/m0))
+                    print(m, n, c) 
+                    i_imag = complex(0, 1) 
+                    A[m, n, c] = np.cos((i*m + j*n)*2*np.pi/m0) + i_imag*np.sin((i*m + j*n)*2*np.pi/m0)
             c+=1
-    A_reshape = A.reshape(m0*n0, int(i0*j0/2)+i0)
+    
+    #A_reshape = A.reshape(m0*n0, int(i0*j0/2)+i0)
+    A_reshape = A.reshape(m0*n0, i0*j0)
 
     return A_reshape
 
 
 def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save, rcond=1e-6):
     
-    modes = np.zeros((i0*j0, t_frames), dtype=complex)
+    #modes = np.zeros((int(i0*j0/2)+i0, t_frames), dtype=complex)
+    modes = np.zeros((int(i0*j0), t_frames), dtype=complex)
     pinv = np.linalg.pinv(A, rcond=rcond)
     
     for i in range(t_frames):
         print(i)
-        img = apply_binning(data[:,:, i], resolution, i0)
+        img = apply_binning(data[:,:, i], resolution, m0)
         coeffs, approx, mean_sub_img = fourier_decomp(img, A, pinv, m0, n0)
         modes[:, i] = coeffs
     hdu_list = fits.HDUList([fits.PrimaryHDU(np.imag(modes)), fits.ImageHDU(np.real(modes))])

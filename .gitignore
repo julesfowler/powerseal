@@ -4,3 +4,4 @@ __pycache__/*
 *.fits
 *.txt
 data/
+*.csv
