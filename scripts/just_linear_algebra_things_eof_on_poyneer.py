@@ -76,7 +76,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single'):
     return layer
 
 
-def convert_phase_to_wfe(phase, wavelength=1.63e-6, unit_conversion=1e9):
+def convert_phase_to_wfe(phase, wavelength=500e-9, unit_conversion=1e9):
     
     wfe = phase*(wavelength*unit_conversion)/(2*np.pi)
     
@@ -129,6 +129,31 @@ def pupil(N):
     R = np.sqrt(pow(X,2)+pow(Y,2))
     p[R<=radius] = 1
     return p
+
+
+
+def read_data_square(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualWF.npy',
+              dm_path='/Users/julesfowler/Downloads/dmc.npy'):
+
+    dm_commands = np.load(dm_path)
+    wf_residuals = np.load(wf_path)
+
+    integrator_phase = wf_residuals*0.6
+    open_loop_phase = (-1*dm_commands + wf_residuals)*0.6
+    open_loop_phase = open_loop_phase[:, 4:17, 4:17]
+
+    past = open_loop_phase[:k, :, :].transpose()
+    future = open_loop_phase[k:k+n_iters, :, :].transpose()
+    future_integrator_residuals = integrator_phase[k:k+n_iters, :, :].transpose()
+    future_integrator_residuals = future_integrator_residuals[4:17, 4:17, :] 
+
+    
+    test = future[:, :, 35]
+    print(np.median(test))
+    #print(np.median(future[35]))
+    print(np.median(test[test != 0]))
+    print(np.shape(past), np.shape(future), np.shape(future_integrator_residuals))
+    return past, future, future_integrator_residuals
 
 
 def read_data(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualWF.npy',
@@ -235,117 +260,137 @@ t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
 resolution = 144
-i, j = 48, 48
-k = 30000
+i, j = 13, 13
 n_iters = 30000
 
-past = np.zeros((i, j, k))
-data = fits.getdata('turbulence_poyneer_8_franken_AOres=144_2khz_finite.fits')
-for index in range(k):
-#    print(np.shape(data[:, :, index]), resolution, i
-    past[:, :, index] = apply_binning(data[:, :, index], resolution, i)
-future = np.copy(past)
-#past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence.fits')
-#test_data = fits.open('turbulence.fits')
-#past, future = test_data[0].data, test_data[1].data
-#past, past_index, future, integrator_residuals, future_index = read_data(k, n_iters)
-#print(np.mean(past), np.mean(future))
-#print(np.sqrt(np.mean(past**2)), np.sqrt(np.mean(future**2)))
-t_data = time.time()
-print(f'Data simulated after {t_data - t_start} seconds.') 
-# first flatten her out so it's only over M actuators/subapertures
-#m = 349
-m = i*j
-#flat_wfs = past_dummy_data.reshape((m, k))
-flat_wfs = past.reshape((m, k))
-#flat_wfs = past.reshape((k, m))
+#hdu = fits.open('turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_120000.fits')
+#hdu = fits.open('turbulence_1_8_ptt_AOres=48_2khz_infinite_500nm_both.fits')
+#future_data = hdu[1].data
+#past_data = hdu[0].data
+n_iters = 10000
+k = 30000
+predictor_avg_rms = []
+for n in [4]:
+    #n = 4 # MUST BE GREATER THAN DT YOU DINGDONG
+    #past = np.zeros((i, j, k))
+    #future = np.zeros((i, j, n_iters))
+    #for index in range(k):
+    #    print(np.shape(data[:, :, index]), resolution, i
+        #past[:, :, index] = apply_binning(past_data[24:120, 24:120, index], 96, 32)
+        #past[:, :, index] = past_data[8:40, 8:40, index]
+        #if index < n_iters:
+            #future[:, :, index] = apply_binning(future_data[24:120, 24:120, index], 96, 32)
+            #future[:, :, index] = future_data[8:40, 8:40, index]
+    #past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence.fits')
+    #test_data = fits.open('turbulence.fits')
+    #past, future = test_data[0].data, test_data[1].data
+    past, future, integrator_residuals = read_data_square(k, n_iters)
+    #print(np.mean(past), np.mean(future))
+    #print(np.sqrt(np.mean(past**2)), np.sqrt(np.mean(future**2)))
+    t_data = time.time()
+    print(f'Data simulated after {t_data - t_start} seconds.') 
+    # first flatten her out so it's only over M actuators/subapertures
+    #m = 349
+    m = i*j
+    #flat_wfs = past_dummy_data.reshape((m, k))
+    flat_wfs = past.reshape((m, k))
+    #flat_wfs = past.reshape((k, m))
 
-# now decide how long the history vector is and how long training matrix is
-n = 5 # MUST BE GREATER THAN DT YOU DINGDONG
-dt = 1
-l = k-n-dt # max k-n
-# now create m*x length history vector and m*n x l length training matrix
-training_matrix = np.zeros((m*n, l))
-for training_index, max_index in enumerate(np.flip(np.arange(n+1, l+n+1))):
-    min_index = max_index - n
-    #print(min_index, max_index)
-    data_slice = np.fliplr(flat_wfs[:, min_index:max_index]).transpose()
-    #print(data_slice.shape)
-    #print(training_matrix[:, max_index].shape, data_slice.flatten().shape)
-    training_matrix[:,training_index] = data_slice.flatten()
+    # now decide how long the history vector is and how long training matrix is
+    dt = 1
+    l = k-n-dt # max k-n
+    # now create m*x length history vector and m*n x l length training matrix
+    training_matrix = np.zeros((m*n, l))
+    for training_index, max_index in enumerate(np.flip(np.arange(n+1, l+n+1))):
+        min_index = max_index - n
+        #print(min_index, max_index)
+        data_slice = np.fliplr(flat_wfs[:, min_index:max_index]).transpose()
+        #print(data_slice.shape)
+        #print(training_matrix[:, max_index].shape, data_slice.flatten().shape)
+        training_matrix[:,training_index] = data_slice.flatten()
 
-# now create state 1 x l state matrix at time delay 3
-state_matrix = np.zeros((m,l))
-#for state_index in range(l):
-for state_index, index in enumerate(np.flip(np.arange(n, l+n))):
-    wfs_index = index+dt
-    state_matrix[:, state_index] = flat_wfs[:, wfs_index]
+    # now create state 1 x l state matrix at time delay 3
+    state_matrix = np.zeros((m,l))
+    #for state_index in range(l):
+    for state_index, index in enumerate(np.flip(np.arange(n, l+n))):
+        wfs_index = index+dt
+        state_matrix[:, state_index] = flat_wfs[:, wfs_index]
 
-# build F matrix with predictive filter
-#F = build_F(training_matrix, state_matrix)
-F = pseudo_inverse_least_squares(training_matrix, state_matrix)
-t_filter = time.time()
-print(f'Filter created after {t_filter - t_data} seconds.')
+    # build F matrix with predictive filter
+    #F = build_F(training_matrix, state_matrix)
+    F = pseudo_inverse_least_squares(training_matrix, state_matrix)
+    t_filter = time.time()
+    print(f'Filter created after {t_filter - t_data} seconds.')
 
-#flat_wfs_future = future_dummy_data.reshape((i*j, n_iters))
-flat_wfs_future = future.reshape((m, n_iters))
-#flat_integrator_residuals = integrator_residuals.reshape((m, n_iters))
-flat_wfs_prediction = np.zeros_like(flat_wfs_future)
-rms_future = []
-prediction = []
-quasi_integrator = []
-rms_pred = []
-rms_int = []
-for max_index in range(n+1, n_iters-dt):
-    min_index = max_index-n
-    data_slice = np.fliplr(flat_wfs_future[:, min_index+1:max_index+1]).transpose()
-    h = data_slice.flatten()
-    dm_commands = calculate_DM_command(F,h)
-    flat_wfs_prediction[:, max_index+dt] = dm_commands
-    #print(f'At iter {max_index}: {np.median(dm_commands.reshape((10,10)))} vs {np.median(flat_wfs_future[:, max_index+dt])}')
-    
-    rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
-    #rms_future.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt])**2)))
-    rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
-    #rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
-    rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
-    #rms_int.append(np.sqrt(np.mean((flat_integrator_residuals[:, max_index+dt])**2)))
+    #flat_wfs_future = future_dummy_data.reshape((i*j, n_iters))
+    flat_wfs_future = future.reshape((m, n_iters))[:, :n_iters]
+    #flat_integrator_residuals = np.zeros_like(flat_wfs_future) 
+    flat_integrator_residuals = integrator_residuals.reshape((m, n_iters))
+    flat_wfs_prediction = np.zeros_like(flat_wfs_future)
+    rms_future = []
+    prediction = []
+    quasi_integrator = []
+    rms_pred = []
+    rms_int = []
+    for max_index in range(n+1, n_iters-dt):
+        print(f'Iter {max_index} of {n_iters}')
+        min_index = max_index-n
+        data_slice = np.fliplr(flat_wfs_future[:, min_index+1:max_index+1]).transpose()
+        h = data_slice.flatten()
+        dm_commands = calculate_DM_command(F,h)
+        flat_wfs_prediction[:, max_index+dt] = dm_commands
+        #flat_integrator_residuals = flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index]
+        #print(f'At iter {max_index}: {np.median(dm_commands.reshape((10,10)))} vs {np.median(flat_wfs_future[:, max_index+dt])}')
+        
+        #rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
+        rms_future.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt])**2)))
+        #rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+        rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+        #rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
+        rms_int.append(np.sqrt(np.mean((flat_integrator_residuals[:, max_index+dt])**2)))
 
 
-save = 'eof_prediction_out.fits'
-hdu_list = fits.HDUList([fits.PrimaryHDU(flat_wfs_future),
-    fits.ImageHDU(flat_wfs_prediction), fits.ImageHDU(flat_integrator_residuals)])
-hdu_list.writeto(save, overwrite=True)
+    save = f'eof_prediction_dt={dt}_k={k}_n={n}_telemetry.fits'
+    hdu_list = fits.HDUList([fits.PrimaryHDU(flat_wfs_future),
+        fits.ImageHDU(flat_wfs_prediction), fits.ImageHDU(flat_integrator_residuals)])
+    hdu_list.writeto(save, overwrite=True)
 
-#plt.plot(future, label='future')
-#plt.plot(prediction, label='prediction', linestyle='--')
-#plt.plot(quasi_integrator, label='quasi integrator', linestyle='-.')
-#plt.legend()
-#plt.yscale('log')
-#plt.savefig('predictive_test_AO.png')
+    #plt.plot(future, label='future')
+    #plt.plot(prediction, label='prediction', linestyle='--')
+    #plt.plot(quasi_integrator, label='quasi integrator', linestyle='-.')
+    #plt.legend()
+    #plt.yscale('log')
+    #plt.savefig('predictive_test_AO.png')
+    #plt.show()
+    #plt.clf()
+    t_end = time.time()
+    print(f'Predictor loop completed after {t_end - t_filter} seconds.')
+
+    plt.plot(np.array(rms_future)*1e3, label='uncorrected', color='gray')
+    #plt.plot(np.array(rms_future), label='uncorrected', color='gray')
+    plt.plot(np.array(rms_int)*1e3, label='integrator', color='green')
+    #plt.plot(np.array(rms_int), label='quasi integrator', color='green')
+    plt.plot(np.array(rms_pred)*1e3, label='prediction', color='cyan')
+    #plt.plot(np.array(rms_pred), label='prediction', color='cyan')
+    plt.legend()
+    plt.xlabel('Iterations (1kHz)')
+    plt.ylabel('RMS wavefront error [nm]') 
+    plt.yscale('log')
+    plt.title(f'EOF RMS = {round(np.median(rms_pred)*1e3, 3)} +/- {round(np.std(rms_pred)*1e3, 3)}nm')
+    #plt.ylim(1e-2, 10)
+    plt.savefig(f'eof_dt={dt}_k={k}_n={n}_square_telemetry.png')
+    #plt.show()
+    plt.clf()
+
+    #print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
+    print(f"For k={k}, n={n}:")
+    print(f'Uncorrected: {np.median(rms_future)*1e3}, integrator: {np.median(rms_int)*1e3}, predictor: {np.median(rms_pred)*1e3} nm.')
+    predictor_avg_rms.append(np.median(rms_pred))
+
+#plt.plot([45000, 50000, 55000, 60000, 65000], predictor_avg_rms)
+#plt.xlabel('training data length [n frames]')
+#plt.ylabel('RMS [nm]')
 #plt.show()
-#plt.clf()
-t_end = time.time()
-print(f'Predictor loop completed after {t_end - t_filter} seconds.')
-
-plt.plot(np.array(rms_future), label='uncorrected', color='gray')
-#plt.plot(np.array(rms_future), label='uncorrected', color='gray')
-plt.plot(np.array(rms_int), label='quasi integrator', color='green')
-#plt.plot(np.array(rms_int), label='quasi integrator', color='green')
-plt.plot(np.array(rms_pred), label='prediction', color='cyan')
-#plt.plot(np.array(rms_pred), label='prediction', color='cyan')
-plt.legend()
-plt.xlabel('Iterations (2kHz)')
-plt.ylabel('RMS wavefront error [um]') 
-plt.yscale('log')
-#plt.ylim(1e-2, 10)
-#plt.savefig('predictive_test_telemetry_dt=1_n_iters=30000.png')
-plt.show()
-#plt.clf()
-
-#print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
-print(f'Uncorrected: {np.median(rms_future)*1e3}, integrator: {np.median(rms_int)*1e3}, predictor: {np.median(rms_pred)*1e3} nm.')
-
 #plt.hist(rms_int, bins=100, label='quasi integrator', alpha=.3, color='gray')
 #plt.hist(rms_pred, bins=100, label='prediction', alpha=.3, color='green')
 #plt.legend()
