@@ -50,25 +50,25 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
 
     def build_multilayer_model(input_grid):
         #based off of https://www2.keck.hawaii.edu/optics/kpao/files/KAON/KAON303.pdf
-        #heights = np.array([0.0, 2.1, 4.1, 6.5, 9.0, 12.0, 14.8])*1000
-        #velocities = np.array([6.7, 13.9, 20.8, 29.0, 29.0, 29.0, 29.0])
-        #outer_scales = np.array([20,20,20,20,20,20,20])
-        #cn_squared = np.array([0.369, 0.219, 0.127, 0.101, 0.046, 0.111, 0.027])* 1e-12
+        heights = np.array([0.0, 2.1, 4.1, 6.5, 9.0, 12.0, 14.8])*1000
+        velocities = np.array([6.7, 13.9, 20.8, 29.0, 29.0, 29.0, 29.0])
+        outer_scales = np.array([20,20,20,20,20,20,20])
+        cn_squared = np.array([0.369, 0.219, 0.127, 0.101, 0.046, 0.111, 0.027])* 1e-12
         
-        heights = np.array([500, 1000, 2000, 4000, 8000]) #, 16000])
-        velocities = np.array([(-20.737481888487043, -9.232921797820662),
-                               (3.1013009279657586, 1.0678635466194741),
-                               (-15.16485459686718, 6.751828275058277),
-                               (2.9449999999999994, -5.100889628290344),
-                               (4.790053532873421, 19.21185538026473)])
+        #heights = np.array([500, 1000, 2000, 4000, 8000]) #, 16000])
+        #velocities = np.array([(-20.737481888487043, -9.232921797820662),
+        #                       (3.1013009279657586, 1.0678635466194741),
+        #                       (-15.16485459686718, 6.751828275058277),
+        #                       (2.9449999999999994, -5.100889628290344),
+        #                       (4.790053532873421, 19.21185538026473)])
         #velocities = np.array([6.5, 6.55, 6.6, 6.7, 22, 9.5, 5.6])
-        outer_scales = np.array([2, 20, 20, 20, 30]) #, 40, 40])
+        #outer_scales = np.array([2, 20, 20, 20, 30]) #, 40, 40])
         #integrated_cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
         #cn_squared = np.array([0.672, 0.051]) #, 0.028, 0.106, 0.08, 0.052,0.012])*integrated_cn_squared
-        r0 = [.389, .447, .454, .388, .436]
-        cn_squared = np.zeros((5))
-        for index, val in enumerate(r0):
-            cn_squared[index] = Cn_squared_from_fried_parameter(val, wavelength=wavelength)
+        #r0 = [.389, .447, .454, .388, .436]
+        #cn_squared = np.zeros((5))
+        #for index, val in enumerate(r0):
+        #    cn_squared[index] = Cn_squared_from_fried_parameter(val, wavelength=wavelength)
 
         layers = []
         
@@ -79,7 +79,7 @@ def build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True):
     if model == 'single':
         print('Building single layer.')
         cn_squared = Cn_squared_from_fried_parameter(0.20, wavelength=wavelength)
-        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, (7, 2))
+        layer = InfiniteAtmosphericLayer(pupil_grid, cn_squared, 20, (14, 0))
     
     elif model == 'multilayer' and not remove_modes:
         layer = MultiLayerAtmosphere(build_multilayer_model(pupil_grid))
@@ -235,7 +235,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
         science_wavelength = 500e-9
         wavelength = 500e-9
         print('Making AO layer.')
-        layer, high_energy_modes = build_atmosphere(wavelength, pupil_grid, model='single', remove_modes=True)
+        layer, high_energy_modes = build_atmosphere(wavelength, pupil_grid, model='multilayer', remove_modes=True)
         
         # running at kHz timescale
         for iters in [(k, past_ptt, past_franken), (n_iters, future_ptt, future_franken)]:
@@ -267,7 +267,7 @@ def build_sample_data(i, j, k, n_iters, data_type='sin', save=None, resolution=N
     if save is not None:
         hdu_list = fits.HDUList([fits.PrimaryHDU(past_ptt), fits.ImageHDU(future_ptt), fits.ImageHDU(past_franken), fits.ImageHDU(future_franken)])
         hdu_list.writeto(save, overwrite=True)
-    return past_ptt, past_franken, future_ptt, future_franken
+    return past_ptt, future_ptt, past_franken, future_franken
 
 
 def pseudo_inverse_least_squares(D, P, alpha=1):
@@ -289,7 +289,7 @@ i, j = 144, 144
 k = 240000
 n_iters = 10000
 
-past_ptt, past_franken, future_ptt, future_franken = build_sample_data(48, 48, k, n_iters, resolution=48, data_type='AO', save='turbulence_v=7_franken_AOres=48_2khz_infinite_500nm_240000.fits')
+past_ptt, future_ptt, past_franken, future_franken = build_sample_data(48, 48, k, n_iters, resolution=48, data_type='AO', save='turbulence_chun_franken_AOres=48_2khz_infinite_500nm_240000.fits')
 #test_data = fits.open('turbulence.fits')
 #past, future = test_data[0].data, test_data[1].data
 #past, past_index, future, integrator_residuals, future_index = read_data(k, n_iters)

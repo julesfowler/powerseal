@@ -122,11 +122,12 @@ def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name,
 i0, j0, m0, n0 = 32, 32, 32, 32
 
 ## -- Read in data and create Fourier decomposition
-data_file = '/data/users/jumfowle/outputs/turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_30000.fits'
+
+data_file = 'turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_120000.fits'
 #data_file = '/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=144_2khz_lessmodes.fits'
 print(f'Reading data from {data_file}')
 training = fits.getdata(data_file, 0)[8:40, 8:40, :]
-#future = fits.getdata(data_file, 1)[8:40, 8:40, :]
+future = fits.getdata(data_file, 1)[8:40, 8:40, :]
 
 # -- Set conditions about the data we're reading in
 t_frames = 30000
@@ -135,8 +136,8 @@ resolution = 32
 # -- Build complex basis
 print('Building complex basis.')
 A = build_complex_basis(i0, j0, m0, n0)
-modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, training, A, save='modes=32_frames=30000_1_franken_2khz_infinite_48x.fits')
-#modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, future, A, save='modes=32_frames=120000_poyneer_1_ptt_2khz_infinite_48x_future.fits')
+modes = decompose_images(i0, j0, m0, n0, resolution, 120000, training, A, save='modes=32_frames=120000_1_franken_2khz_infinite_48x_training.fits')
+modes = decompose_images(i0, j0, m0, n0, resolution, 10000, future, A, save='modes=32_frames=10000_poyneer_1_franken_2khz_infinite_48x_future.fits')
 print('Decomposing images')
 
 # Specify what mode and wind layers we injected
