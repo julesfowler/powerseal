@@ -9,6 +9,31 @@ from hcipy import *
 
 
 ## -- FUNCTIONS 
+
+def read_data_square(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualWF.npy',
+              dm_path='/Users/julesfowler/Downloads/dmc.npy'):
+
+    dm_commands = np.load(dm_path)
+    wf_residuals = np.load(wf_path)
+
+    integrator_phase = wf_residuals*0.6
+    open_loop_phase = (-1*dm_commands + wf_residuals)*0.6
+    open_loop_phase = open_loop_phase[:, 4:17, 4:17]
+
+    past = open_loop_phase[:k, :, :].transpose()
+    future = open_loop_phase[k:k+n_iters, :, :].transpose()
+    future_integrator_residuals = integrator_phase[k:k+n_iters, :, :].transpose()
+    future_integrator_residuals = future_integrator_residuals[4:17, 4:17, :] 
+
+    
+    test = future[:, :, 35]
+    print(np.median(test))
+    #print(np.median(future[35]))
+    print(np.median(test[test != 0]))
+    print(np.shape(past), np.shape(future), np.shape(future_integrator_residuals))
+    return past, future, future_integrator_residuals
+
+
 def apply_binning(data, resolution, modes):
 
     # taken almost exactly from Maaike's notebook
@@ -90,7 +115,7 @@ def decompose_images(i0, j0, m0, n0, resolution, t_frames, data, A, save, rcond=
     
     for i in range(t_frames):
         print(i)
-        img = apply_binning(data[:,:, i], resolution, i0)
+        img = data[:, :, i] #apply_binning(data[:,:, i], resolution, i0)
         coeffs, approx, mean_sub_img = fourier_decomp(img, A, pinv, m0, n0)
         modes[:, i] = coeffs
     hdu_list = fits.HDUList([fits.PrimaryHDU(np.imag(modes)), fits.ImageHDU(np.real(modes))])
@@ -119,23 +144,23 @@ def build_periodogram(modes, mode_sum, mode_k, mode_j, velocities, thetas, name,
 # j0 : # y modes
 # m0 : # x pixels (post binning)
 # n0 : # y pixels
-i0, j0, m0, n0 = 32, 32, 32, 32
+i0, j0, m0, n0 = 14, 14, 13, 13
 
 ## -- Read in data and create Fourier decomposition
-data_file = '/data/users/jumfowle/outputs/turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_30000.fits'
+#data_file = '/data/users/jumfowle/outputs/turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_30000.fits'
 #data_file = '/data/users/jumfowle/outputs/turbulence_poyneer_8_franken_AOres=144_2khz_lessmodes.fits'
-print(f'Reading data from {data_file}')
-training = fits.getdata(data_file, 0)[8:40, 8:40, :]
+t_frames = 110000
+training, future, _ = read_data_square(t_frames, 10000)
+print(f'Reading data from telemetry')
 #future = fits.getdata(data_file, 1)[8:40, 8:40, :]
 
 # -- Set conditions about the data we're reading in
-t_frames = 30000
-resolution = 32
+resolution = 13
 
 # -- Build complex basis
 print('Building complex basis.')
 A = build_complex_basis(i0, j0, m0, n0)
-modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, training, A, save='modes=32_frames=30000_1_franken_2khz_infinite_48x.fits')
+modes = decompose_images(i0, j0, m0, n0, resolution, 10000, future, A, save='future_modes=14_frames=10000_telemetry.fits')
 #modes = decompose_images(i0, j0, m0, n0, resolution, t_frames, future, A, save='modes=32_frames=120000_poyneer_1_ptt_2khz_infinite_48x_future.fits')
 print('Decomposing images')
 

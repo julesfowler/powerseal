@@ -5,7 +5,7 @@ import numpy as np
 # NOTE I'm using a convenience animation helper from 
 # my favorite optics/High Contrast Imaging Python package
 # you'll probably need to install it with pip3 install hcipy
-from hcipy import FFMpegWriter
+from hcipy import GifWriter
 
 def convert_phase_to_wfe(phase, wavelength=1.63e-6, unit_conversion=1e9):
     """ Given some phase error in radians, convert to wavefront error."""
@@ -20,7 +20,7 @@ def convert_phase_to_wfe(phase, wavelength=1.63e-6, unit_conversion=1e9):
 # pure spaghetti and non-trivial to clean up and share :) 
 
 # Read in the data from my results file
-predictive_data = fits.open('prediction_results.fits')
+predictive_data = fits.open('data/prediction_results.fits')
 
 # Split these into the actual state of the atmosphere and 
 # What our predictive controller thinks it will be
@@ -33,7 +33,7 @@ predictor_shaped = prediction.reshape((20,20,30000))
 
 
 # Set up animation writer and some arrays to update
-anim = FFMpegWriter('AO_final.mp4', framerate=6)
+anim = GifWriter('AO_final.gif', framerate=6)
 x1 = []
 y1, y2, y3 = [], [], []
 

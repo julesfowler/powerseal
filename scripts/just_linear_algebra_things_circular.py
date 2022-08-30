@@ -143,8 +143,8 @@ def read_data_square(k, n_iters, wf_path='/Users/julesfowler/Downloads/residualW
     open_loop_phase = open_loop_phase[:, 4:17, 4:17]
 
     past = open_loop_phase[:k, :, :].transpose()
-    future = open_loop_phase[k:k+n_iters, :, :].transpose()
-    future_integrator_residuals = integrator_phase[k:k+n_iters, :, :].transpose()
+    future = open_loop_phase[-1*n_iters:, :, :].transpose()
+    future_integrator_residuals = integrator_phase[-1*n_iters:, :, :].transpose()
     future_integrator_residuals = future_integrator_residuals[4:17, 4:17, :] 
 
     
@@ -260,44 +260,56 @@ t_start = time.time()
 # given some 3d numpy array that holds WFS data for some ixj actuators over some
 # k timesteps
 resolution = 144
-i, j = 13, 13
+i, j = 48, 48
 n_iters = 30000
 
+#hdu = fits.open('../data/turbulence_v=7_franken_AOres=48_2khz_infinite_500nm_240000.fits')
+hdu = fits.open('../data/turbulence_v=14_franken_AOres=48_2khz_infinite_500nm_90000.fits')
 #hdu = fits.open('turbulence_1_8_franken_AOres=48_2khz_infinite_500nm_120000.fits')
 #hdu = fits.open('turbulence_1_8_ptt_AOres=48_2khz_infinite_500nm_both.fits')
-#future_data = hdu[1].data
-#past_data = hdu[0].data
+#hdu = fits.open('turbulence_chun_ptt_res=48_2khz_infinite_500nm_240000.fits')
+#hdu = fits.open('../data/turbulence_chun_franken_AOres=48_2khz_infinite_500nm_240000.fits')
+
+resolution = 48
+pupil_grid = make_pupil_grid(48, 8)
+aperture = evaluate_supersampled(circular_aperture(7.8), pupil_grid, 4)
+aperture_bools = np.array(aperture.shaped, dtype=bool)
+
+
+future_data = hdu[1].data
+past_data = hdu[0].data
 n_iters = 10000
-k = 30000
+k = 60000
+n_ap = 1788
 predictor_avg_rms = []
-for n in [4]:
+for n in [3]: #[3, 4, 5, 6, 7]:
     #n = 4 # MUST BE GREATER THAN DT YOU DINGDONG
-    #past = np.zeros((i, j, k))
-    #future = np.zeros((i, j, n_iters))
-    #for index in range(k):
+    past = np.zeros((n_ap, k))
+    future = np.zeros((n_ap, n_iters))
+    for index in range(k):
     #    print(np.shape(data[:, :, index]), resolution, i
         #past[:, :, index] = apply_binning(past_data[24:120, 24:120, index], 96, 32)
-        #past[:, :, index] = past_data[8:40, 8:40, index]
-        #if index < n_iters:
+        past[:, index] = past_data[:, :, index][aperture_bools]
+        if index < n_iters:
             #future[:, :, index] = apply_binning(future_data[24:120, 24:120, index], 96, 32)
-            #future[:, :, index] = future_data[8:40, 8:40, index]
+            future[:, index] = future_data[:, :, index][aperture_bools]
     #past, future = build_sample_data(i, j, k, n_iters, resolution=resolution, data_type='AO', save='turbulence.fits')
     #test_data = fits.open('turbulence.fits')
     #past, future = test_data[0].data, test_data[1].data
-    past, future, integrator_residuals = read_data_square(k, n_iters)
+    #past, index_flat_past, future, future_integrator_residuals, index_flat_future = read_data(k, n_iters)
     #print(np.mean(past), np.mean(future))
     #print(np.sqrt(np.mean(past**2)), np.sqrt(np.mean(future**2)))
     t_data = time.time()
     print(f'Data simulated after {t_data - t_start} seconds.') 
     # first flatten her out so it's only over M actuators/subapertures
     #m = 349
-    m = i*j
+    m = 1788
     #flat_wfs = past_dummy_data.reshape((m, k))
     flat_wfs = past.reshape((m, k))
     #flat_wfs = past.reshape((k, m))
 
     # now decide how long the history vector is and how long training matrix is
-    dt = 1
+    dt = 2
     l = k-n-dt # max k-n
     # now create m*x length history vector and m*n x l length training matrix
     training_matrix = np.zeros((m*n, l))
@@ -324,8 +336,8 @@ for n in [4]:
 
     #flat_wfs_future = future_dummy_data.reshape((i*j, n_iters))
     flat_wfs_future = future.reshape((m, n_iters))[:, :n_iters]
-    #flat_integrator_residuals = np.zeros_like(flat_wfs_future) 
-    flat_integrator_residuals = integrator_residuals.reshape((m, n_iters))
+    flat_integrator_residuals = np.zeros_like(flat_wfs_future) 
+    #flat_integrator_residuals = future_integrator_residuals.reshape((m, n_iters))
     flat_wfs_prediction = np.zeros_like(flat_wfs_future)
     rms_future = []
     prediction = []
@@ -339,18 +351,18 @@ for n in [4]:
         h = data_slice.flatten()
         dm_commands = calculate_DM_command(F,h)
         flat_wfs_prediction[:, max_index+dt] = dm_commands
-        #flat_integrator_residuals = flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index]
+        flat_integrator_residuals = flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index]
         #print(f'At iter {max_index}: {np.median(dm_commands.reshape((10,10)))} vs {np.median(flat_wfs_future[:, max_index+dt])}')
         
-        #rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
-        rms_future.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt])**2)))
-        #rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
-        rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
-        #rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
-        rms_int.append(np.sqrt(np.mean((flat_integrator_residuals[:, max_index+dt])**2)))
+        rms_future.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt])**2)))
+        #rms_future.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt])**2)))
+        rms_pred.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+        #rms_pred.append(np.sqrt(np.mean((flat_wfs_future[:, max_index+dt] - dm_commands)**2)))
+        rms_int.append(np.sqrt(np.mean(convert_phase_to_wfe(flat_wfs_future[:, max_index+dt] - flat_wfs_future[:, max_index])**2)))
+        #rms_int.append(np.sqrt(np.mean((flat_integrator_residuals[:, max_index+dt])**2)))
 
 
-    save = f'eof_prediction_dt={dt}_k={k}_n={n}_telemetry.fits'
+    save = f'eof_prediction_dt={dt}_k={k}_n={n}_v=14_circular.fits'
     hdu_list = fits.HDUList([fits.PrimaryHDU(flat_wfs_future),
         fits.ImageHDU(flat_wfs_prediction), fits.ImageHDU(flat_integrator_residuals)])
     hdu_list.writeto(save, overwrite=True)
@@ -366,25 +378,26 @@ for n in [4]:
     t_end = time.time()
     print(f'Predictor loop completed after {t_end - t_filter} seconds.')
 
-    plt.plot(np.array(rms_future)*1e3, label='uncorrected', color='gray')
-    #plt.plot(np.array(rms_future), label='uncorrected', color='gray')
-    plt.plot(np.array(rms_int)*1e3, label='integrator', color='green')
-    #plt.plot(np.array(rms_int), label='quasi integrator', color='green')
-    plt.plot(np.array(rms_pred)*1e3, label='prediction', color='cyan')
-    #plt.plot(np.array(rms_pred), label='prediction', color='cyan')
+    #plt.plot(np.array(rms_future)*1e3, label='uncorrected', color='gray')
+    plt.plot(np.array(rms_future), label='uncorrected', color='gray')
+    #plt.plot(np.array(rms_int)*1e3, label='integrator', color='green')
+    plt.plot(np.array(rms_int), label='quasi integrator', color='green')
+    #plt.plot(np.array(rms_pred)*1e3, label='prediction', color='cyan')
+    plt.plot(np.array(rms_pred), label='prediction', color='cyan')
     plt.legend()
     plt.xlabel('Iterations (1kHz)')
     plt.ylabel('RMS wavefront error [nm]') 
     plt.yscale('log')
-    plt.title(f'EOF RMS = {round(np.median(rms_pred)*1e3, 3)} +/- {round(np.std(rms_pred)*1e3, 3)}nm')
+    plt.title(f'EOF RMS = {round(np.median(rms_pred), 3)} +/- {round(np.std(rms_pred), 3)}nm')
     #plt.ylim(1e-2, 10)
-    plt.savefig(f'eof_dt={dt}_k={k}_n={n}_square_telemetry.png')
+    plt.savefig(f'eof_dt={dt}_k={k}_n={n}_v=7_new_circular.png')
     #plt.show()
     plt.clf()
 
     #print(f'Uncorrected: {np.median(rms_future)}, quasi-integrator: {np.median(rms_int)}, predictor: {np.median(rms_pred)} nm.')
     print(f"For k={k}, n={n}:")
     print(f'Uncorrected: {np.median(rms_future)*1e3}, integrator: {np.median(rms_int)*1e3}, predictor: {np.median(rms_pred)*1e3} nm.')
+    print(f'predictor std: {np.std(rms_pred)*1e3}')
     predictor_avg_rms.append(np.median(rms_pred))
 
 #plt.plot([45000, 50000, 55000, 60000, 65000], predictor_avg_rms)

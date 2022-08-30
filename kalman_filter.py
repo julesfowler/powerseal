@@ -1,5 +1,6 @@
 ## -- IMPORTS
 from astropy.io import ascii, fits
+from hcipy import *
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy
@@ -7,18 +8,20 @@ import scipy
 
 ## -- FUNCTIONS
 
-def build_complex_basis(i0, j0, m0, n0):
-    A = np.zeros((m0, n0,i0*j0), dtype=complex)
+def build_complex_basis(i0, j0, m0, n0, aperture_bools, n_ap=1788):
+    A = np.zeros((m0, n0, i0*j0), dtype=np.cdouble)
+    A_filter = np.zeros((n_ap, i0*j0), dtype=np.cdouble)
     c = 0
     for i in range(int(-1*i0/2+1), int(i0/2+1)):
         for j in range(int(-1*j0/2+1), int(j0/2+1)):
             for m in range(m0):
                 for n in range(n0):
                     A[m, n, c] = complex(np.cos((i*m + j*n)*2*np.pi/m0), np.sin((i*m + j*n)*2*np.pi/m0))
+            A_filter[:, c] = A[:, :, c][aperture_bools]
             c+=1
     A_reshape = A.reshape(m0*n0, i0*j0)
 
-    return A_reshape
+    return A_reshape, A_filter
 
 
 def build_initial_filter(A, B, C, P_w, P_v):
@@ -97,6 +100,7 @@ def evolve_state(x_prev, dm_prev, y, A, C, G, K):
     l_plus_six = np.shape(K)[0]
     kalman_term = np.identity(l_plus_six) - np.matmul(K, C)
     #print('I - KC ', np.shape(kalman_term)) 
+    #x = np.matmul(np.matmul(kalman_term, A), np.ones_like(x_prev)) +  np.matmul(kalman_term, G)*dm_prev + K*y
     x = np.matmul(np.matmul(kalman_term, A), x_prev) +  np.matmul(kalman_term, G)*dm_prev + K*y
 
     wf_next = x[l_plus_six-5]
@@ -104,7 +108,7 @@ def evolve_state(x_prev, dm_prev, y, A, C, G, K):
     #print(wf_next)
     #print(x)
 
-    return x, wf_next, 
+    return x, wf_next
 
 
 def build_A(alpha):
@@ -133,16 +137,16 @@ def build_A(alpha):
     l_plus = len(alpha)
     l = l_plus - 1
 
-    R = np.zeros((l_plus, l_plus))
+    R = np.zeros((l_plus, l_plus), dtype=np.cdouble)
     for index, alpha_val in enumerate(alpha):
         R[index, index] = alpha_val
 
-    A = np.zeros((l+6, l+6))
+    A = np.zeros((l+6, l+6), dtype=np.cdouble)
     
     A[:l_plus, :l_plus] = R
     A[l_plus, :l_plus] = np.ones(l_plus)
 
-    A[-1, -2] = 1
+    #A[-1, -2] = 1
     A[-3, -4] = 1
     A[-4, -5] = 1
 
@@ -150,7 +154,7 @@ def build_A(alpha):
 
 def build_autoregression(alpha_layers, w_layers, a_minus):
     
-    a_vector = np.zeros(len(alpha_layers), dtype=complex)
+    a_vector = np.zeros(len(alpha_layers), dtype=np.cdouble)
     for index, alpha_value in enumerate(alpha):
         a_value = alpha_value*a_minus + w_layers[index]
         a_vector[index] = a_value
@@ -191,15 +195,19 @@ def build_C(l):
     """
 
     C = np.zeros(l+6)
-    C[-2] = -1.0
+    #C[-2] = -1.0
     C[-3] = 1
 
     return C.reshape((1, l+6))
 
 
+def velocity_to_mode(k, l, vx, vy, d=8):
+    return -1*(k*vx + l*vy)/d
+
+
 def build_complex_alphas(alphas_real, alphas_imag, time_interval=2000):
 
-    complex_alphas = []
+    complex_alphas = [] 
     for index, elem in enumerate(alphas_real):
         phi = 2*np.pi*alphas_imag[index]/time_interval
         exp_term = complex(0,1)*phi
@@ -234,18 +242,18 @@ def build_G(l):
 def build_K(P_s, C, P_v, l):
     """ Calculate steady state Kalman gains, a 1 x L+6 matrix."""
     
-    term = 1/(np.matmul(np.matmul(C, P_s), C.transpose()))
-    K = np.matmul(P_s, C.transpose())*term
+    term = 1/(np.matmul(np.matmul(C, P_s), np.matrix(C).H))
+    K = np.matmul(P_s, np.matrix(C).H)*term
     return K.reshape((l+6, 1))
 
 
 def build_P_s(A, B, C, P_v, P_w):
     """ Solve the discrete algebraic ricatti equation for the steady state
     covariance matrix. """
-
-    a = A.transpose()
-    b = C.transpose()
-    q = np.matmul(np.matmul(B, P_w), B.transpose())
+    #print(A, B, C, P_v, P_w)
+    a = np.matrix(A).H
+    b = np.matrix(C).H
+    q = np.matmul(np.matmul(B, P_w), np.matrix(B).H)
     r = P_v
     
     P_s = scipy.linalg.solve_discrete_are(a, b, q, r)
@@ -294,14 +302,14 @@ def build_x_init(a, wavefront, dm, timestep):
     l_plus = len(a)
     l = l_plus - 1
 
-    x = np.zeros(l+6, dtype=complex)
+    x = np.zeros(l+6, dtype=np.cdouble)
     x[:l_plus] = a
     x[-5] = wavefront[timestep+1]
     x[-4] = wavefront[timestep]
     x[-3] = wavefront[timestep-1]
     x[-2] = dm[timestep-1]
     x[-1] = dm[timestep-2]
-
+    
     return x.reshape((l+6, 1))
 
 
@@ -320,15 +328,25 @@ def convert_phase_to_wfe(phase, wavelength=500e-9, unit_conversion=1e9):
 if __name__ == "__main__":
     
     ## -- GET IT
-    i0, j0, m0, n0 = 32, 32, 32, 32
+    i0, j0, m0, n0 = 22, 22, 21, 21
     n_sample = 9998
-    fourier_modes = build_complex_basis(i0, j0, m0, n0)
+    resolution = 21
+    pupil_grid = make_pupil_grid(resolution, 8)
+    aperture = evaluate_supersampled(circular_aperture(7.8), pupil_grid, 4)
+    aperture_bools = np.array(aperture.shaped, dtype=bool)
+    _, fourier_modes = build_complex_basis(i0, j0, m0, n0, aperture_bools, n_ap=357)
+    #_, fourier_modes = build_complex_basis(i0, j0, m0, n0, aperture_bools)
     print('Built fourier modes.')
-    for n_frames in [10000]:
-        infile = 'modes=32_frames=10000_poyneer_1_franken_2khz_infinite_48x_future.fits'
+    for n_frames in [10000]: #60000, 90000]:
+        infile = 'scripts/future_modes=22_frames=10000_telemetry_circular.fits'
+        #infile = 'scripts/modes=48_frames=10000_8_ptt_chun_2khz_circular_future.fits'
+        #infile = 'scripts/modes=48_frames=10000_1_ptt_v=14_2khz_circular_nmunits_future.fits'
+        #infile = 'scripts/modes=48_frames=10000_8_ptt_chun_direction_2khz_circular_future.fits'
+        #infile = 'scripts/modes=48_frames=90000_1_ptt_v=7_2khz_circuluar_nmunits_training.fits'
+
         hdu = fits.open(infile)
         modes = np.complex(0, 1)*hdu[0].data + np.complex(1, 0)*hdu[1].data
-        """
+        """ 
         #wavefront = modes[1715, :]
 
 
@@ -396,14 +414,18 @@ if __name__ == "__main__":
         #plt.plot(timesteps, wf_predictions)
         plt.show()
         """
-        """
-        infile = f'mode_layers_training={n_frames}.csv'
+        #infile = 'mode_layers_v=7_nmunits_training=10000_circular_perfect_freq.csv'
+        #infile = 'mode_layers_v=7_new_training=10000_circular.csv'
+        #infile = f'mode_layers_chun_direction_training={n_frames}_circular.csv'
+        #infile = f'mode_layers_chun_training={n_frames}_circular.csv'
+        infile = f'mode_layers_telem_new_training={n_frames}_circular.csv'
+        
         print(f'For {n_frames} of training data:')
         layer_data = ascii.read(infile)
-        index_data = ascii.read('mode_dict_32x.csv')
+        index_data = ascii.read('mode_dict_22x.csv')
         prediction_out = {}
         
-        for index in range(1024):
+        for index in range(22*22):
             print(index)
             sample_length = 10000
             wavefront = modes[index][:sample_length]
@@ -411,7 +433,7 @@ if __name__ == "__main__":
 
             alphas_real = layer_data[f'{str(index)}_alphas_real']
             alphas_imag = layer_data[f'{str(index)}_alphas_imag']
-            alpha = build_complex_alphas(alphas_real[alphas_real > 0], alphas_imag[alphas_real > 0])
+            alpha = build_complex_alphas(alphas_real[alphas_real > 0], alphas_imag[alphas_real > 0], time_interval=1000)
             sigmas = layer_data[f'{str(index)}_sigmas']
             sigma_squared = sigmas[alphas_real > 0]
 
@@ -419,12 +441,12 @@ if __name__ == "__main__":
             
             # perfect DM for now, so d[t] = x[t]
             dt_start = 4
-            timesteps = np.arange(sample_length)
+            timesteps = np.arange(1, sample_length)
             wavefront = wavefront[:sample_length]
             dm_commands = np.zeros(sample_length)
             dm_commands[:3] = [wf.real for wf in wavefront[:3]]
-            sensor_noise_factor = np.median(wavefront.real)*1e-2
-            v = sensor_noise_factor*np.random.random(sample_length)*0
+            sensor_noise_factor = 1e-5*np.median(wavefront.real)
+            v = 0*sensor_noise_factor*np.random.random(sample_length)
             measurement_data = wavefront + v
 
             A = build_A(alpha)
@@ -432,7 +454,7 @@ if __name__ == "__main__":
             C = build_C(l)
             G = build_G(l)
             P_w = build_P_w(sigma_squared)
-            P_v = build_P_v(v)
+            P_v = 0*build_P_v(v)
             P_s = build_P_s(A, B, C, P_v, P_w)
             K = build_K(P_s, C, P_v, l)
 
@@ -450,7 +472,7 @@ if __name__ == "__main__":
                 dm_prev = dm_commands[dt-1]
                 x, wf_prediction = evolve_state(x, dm_prev, y, A, C, G, K)
 
-                wf_predictions[dt] = wf_prediction
+                wf_predictions[dt-1] = wf_prediction
             
             
             #plt.title('Imaginary Coefficient')
@@ -476,17 +498,17 @@ if __name__ == "__main__":
             #plt.savefig(f'real_coeff_{str(mode)}.png')
             #plt.clf()
 
-        ascii.write(prediction_out, f'prediction_out_single_training={n_frames}_real.csv', overwrite=True)
-        """
+        #ascii.write(prediction_out, f'prediction_out_ptt_v=7_training={n_frames}_real_circular.csv', overwrite=True)
+        
 
         
-        prediction = ascii.read(f'prediction_out_single_training={n_frames}_real.csv')
+        prediction = prediction_out #ascii.read(f'prediction_out_ptt_v=7_training={n_frames}_real_circular.csv')
 
 
-        n_modes = np.shape(fourier_modes)[0]
-        wavefront_coeffs = np.zeros((n_modes, n_sample), dtype=complex)
-        prediction_coeffs = np.zeros((n_modes, n_sample), dtype=complex)
-        integrator_coeffs = np.zeros((n_modes, n_sample), dtype=complex)
+        n_modes = np.shape(fourier_modes)[1]
+        wavefront_coeffs = np.zeros((n_modes, n_sample), dtype=np.cdouble)
+        prediction_coeffs = np.zeros((n_modes, n_sample), dtype=np.cdouble)
+        integrator_coeffs = np.zeros((n_modes, n_sample), dtype=np.cdouble)
         
         for index in range(n_modes):
             print(index)
@@ -495,15 +517,19 @@ if __name__ == "__main__":
             prediction_coeffs[index, :] = prediction[f'prediction_real_{index}'] + np.complex(0, 1)*prediction[f'prediction_imag_{index}']
             #integrator_coeffs[index, :] = prediction[f'integrator_real_{index}'] + np.complex(0, 1)*prediction[f'integrator_imag_{index}']
             
-
+        wavefront_coeffs[np.isnan(wavefront_coeffs)] = 0
         wavefront = np.matmul(fourier_modes, wavefront_coeffs)
-        delta_t = 1
+        print(np.shape(wavefront))
+        
+        delta_t = 2
         wf_integrator_residuals = np.zeros_like(wavefront.real)
         dt_integrator = np.arange(delta_t, 9998-delta_t)
         for i in range(delta_t, 9998-delta_t):
             wf_integrator_residuals[:, i] = wavefront.real[:, i+delta_t] - wavefront.real[:, i]
         wf_integrator_residuals = wf_integrator_residuals[:, delta_t:9998-delta_t]
         print(np.shape(wf_integrator_residuals), np.shape(dt_integrator))
+        
+        prediction_coeffs[np.isnan(prediction_coeffs)] = 0
         wf_prediction = np.matmul(fourier_modes, prediction_coeffs)
         #wf_integrator = np.matmul(fourier_modes, integrator_coeffs)
         #wf_integrator = np.zeros_like(wavefront.real)
@@ -511,20 +537,27 @@ if __name__ == "__main__":
         #                                    fits.ImageHDU(wf_integrator.real), fits.ImageHDU(wf_integrator.imag),
                                             fits.ImageHDU(wf_prediction.real), fits.ImageHDU(wf_prediction.imag)])
 
-        wind_prediction_hdu.writeto(f'wind_prediction_{n_frames}_complex_out.fits', overwrite=True)
+        wind_prediction_hdu.writeto(f'wind_prediction_ptt_telem_new_{n_frames}_out_circular.fits', overwrite=True)
         plt.clf()
         dt = np.arange(n_sample)
-        plt.semilogy(dt, np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real)**2, axis=0)), color='gray', label='uncorrected')
-        plt.semilogy(dt_integrator, np.sqrt(np.mean(convert_phase_to_wfe(wf_integrator_residuals)**2, axis=0)), color='green', label='quasi integrator')
-        plt.semilogy(dt, np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real - wf_prediction.real)**2, axis=0)), color='cyan', label='prediction')
+        #plt.semilogy(dt, np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real)**2, axis=0)), color='gray', label='uncorrected')
+        plt.semilogy(dt, np.sqrt(np.mean(wavefront.real**2, axis=0))*1e3, color='gray', label='uncorrected')
+        #plt.semilogy(dt_integrator, np.sqrt(np.mean(convert_phase_to_wfe(wf_integrator_residuals)**2, axis=0)), color='green', label='quasi integrator')
+        plt.semilogy(dt_integrator, np.sqrt(np.mean(wf_integrator_residuals**2, axis=0))*1e3, color='green', label='quasi integrator')
+        #plt.semilogy(dt, np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real - wf_prediction.real)**2, axis=0))*1e3, color='cyan', label='prediction')
+        plt.semilogy(dt, np.sqrt(np.mean((wavefront.real - wf_prediction.real)**2, axis=0))*1e3, color='cyan', label='prediction')
         plt.legend()
-        med_turb = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real)**2, axis=0)))
-        med_integrator = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wf_integrator_residuals)**2, axis=0)))
-        med_predictor = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real - wf_prediction.real)**2, axis=0)))
-        plt.xlabel('Iterations [2kHz]')
+        #med_turb = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real)**2, axis=0)))
+        med_turb = np.median(np.sqrt(np.mean(wavefront.real**2, axis=0)))*1e3
+        #med_integrator = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wf_integrator_residuals)**2, axis=0)))
+        med_integrator = np.median(np.sqrt(np.mean(wf_integrator_residuals**2, axis=0)))*1e3
+        #med_predictor = np.median(np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real - wf_prediction.real)**2, axis=0)))
+        med_predictor = np.median(np.sqrt(np.mean((wavefront.real - wf_prediction.real)**2, axis=0)))*1e3
+        std_predictor = np.std(np.sqrt(np.mean(convert_phase_to_wfe(wavefront.real - wf_prediction.real)**2, axis=0))[10:])*1e3
+        plt.xlabel('Iterations [1 ms]')
         plt.ylabel('RMS wavefront error [nm]')
-        plt.title(f'PFC RMS = {med_predictor} nm')
+        plt.title(f'PFC RMS = {round(med_predictor, 3)} +/- {round(std_predictor, 3)} nm')
         plt.ylim(1, 1e3)
         print(med_turb, med_integrator, med_predictor)
         plt.show()
-        
+
